@@ -34,6 +34,8 @@ if __name__=='__main__':
     parser.add_argument('--save_path', default='/HDD/kyohoon/model_checkpoint/hate_speech/', type=str,
                         help='Model checkpoint file path')
     # Model setting
+    parser.add_argument('--patch_size', default=16, type=int, 
+                        help='ViT patch size; Default is 16')
     parser.add_argument('--d_model', default=512, type=int, 
                         help='Transformer model dimension; Default is 512')
     parser.add_argument('--d_embedding', default=256, type=int, 
