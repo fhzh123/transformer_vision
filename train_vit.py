@@ -92,7 +92,7 @@ def valid_epoch(args, model, dataloader, device):
 
     return val_loss, val_acc
 
-def training(args):
+def vit_training(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     #===================================#
@@ -143,13 +143,12 @@ def training(args):
 
     # 1) Model initiating
     write_log(logger, "Instantiating models...")
-    model = Vision_Transformer(n_classes=10, img_size=32, patch_size=16)
-    model.train()
+    model = Vision_Transformer(n_classes=10, img_size=32, patch_size=args.patch_size)
+    model = model.train()
     model = model.to(device)
 
     # 2) Optimizer setting
-    # optimizer = AdamW(model.parameters(), lr=args.lr, eps=1e-8)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-8)
+    optimizer = optimizer_select(model, args)
     scheduler = shceduler_select(optimizer, dataloader_dict, args)
     scaler = GradScaler()
 

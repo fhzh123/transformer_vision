@@ -1,9 +1,8 @@
 from torch import optim
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau, LambdaLR
+from transformers import AdamW
 from .optimizer import Ralamb
 from .scheduler import WarmupLinearSchedule
-
-from transformers import AdamW
 
 def optimizer_select(model, args):
     no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
@@ -24,7 +23,7 @@ def optimizer_select(model, args):
         optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), 
                                lr=args.lr, eps=1e-8)
     elif args.optimizer == 'AdamW':
-        optimizer = optimizer = AdamW(model.parameters(), lr=args.lr, eps=1e-8)
+        optimizer = AdamW(model.parameters(), lr=args.lr, eps=1e-8)
     elif args.optimizer == 'Ralamb':
         optimizer = Ralamb(filter(lambda p: p.requires_grad, model.parameters()), 
                            lr=args.lr)
@@ -49,16 +48,3 @@ def shceduler_select(optimizer, dataloader_dict, args):
     else:
         raise Exception("Choose shceduler in ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda']")
     return scheduler
-
-    # For later
-    # no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
-    # optimizer_grouped_parameters = [
-    #     {
-    #         "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-    #         "weight_decay": args.weight_decay
-    #     },
-    #     {
-    #         "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
-    #         "weight_decay": 0.0
-    #     },
-    # ]
