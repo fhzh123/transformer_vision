@@ -143,7 +143,11 @@ def vit_training(args):
 
     # 1) Model initiating
     write_log(logger, "Instantiating models...")
-    model = Vision_Transformer(n_classes=10, img_size=32, patch_size=args.patch_size)
+    model = Vision_Transformer(n_classes=10, d_model=args.d_model, d_embedding=args.d_embedding, 
+                               n_head=args.n_head, dim_feedforward=args.dim_feedforward,
+                               num_encoder_layer=args.num_encoder_layer, img_size=32, patch_size=args.patch_size,
+                               dropout=args.dropout)
+
     model = model.train()
     model = model.to(device)
 

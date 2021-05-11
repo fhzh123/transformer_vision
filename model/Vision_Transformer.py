@@ -11,8 +11,7 @@ from .layers import PatchEmbedding, TransformerEncoderLayer
 
 class Vision_Transformer(nn.Module):
     def __init__(self, n_classes, d_model=512, d_embedding=256, n_head=8, dim_feedforward=2048,
-            num_encoder_layer=10, num_decoder_layer=10, img_size=224, patch_size=16,
-            dropout=0.3):
+            num_encoder_layer=10, img_size=224, patch_size=16, dropout=0.3):
     
         super(Vision_Transformer, self).__init__()
 
