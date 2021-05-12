@@ -30,7 +30,7 @@ def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, lo
 
         # Input, output setting
         img = img.to(device, non_blocking=True)
-        label = label.to(device, non_blocking=True)
+        label = label.long().to(device, non_blocking=True)
 
         # Model
         logit = model(img)
@@ -40,7 +40,7 @@ def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, lo
         loss = F.cross_entropy(first_token, label)
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
-        clip_grad_norm_(model.parameters(), args.grad_norm)
+        clip_grad_norm_(model.parameters(), args.clip_grad_norm)
         scaler.step(optimizer)
         scaler.update()
 
@@ -119,6 +119,7 @@ def vit_training(args):
         ]),
         'valid': transforms.Compose(
         [
+            transforms.Resize((224, 224)),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
@@ -131,7 +132,7 @@ def vit_training(args):
     }
     dataloader_dict = {
         'train': DataLoader(dataset_dict['train'], drop_last=True,
-                            batch_size=args.batch_size, shuffle=False, pin_memory=True,
+                            batch_size=args.batch_size, shuffle=True, pin_memory=True,
                             num_workers=args.num_workers),
         'valid': DataLoader(dataset_dict['valid'], drop_last=False,
                             batch_size=args.batch_size, shuffle=False, pin_memory=True,
@@ -146,9 +147,9 @@ def vit_training(args):
 
     # 1) Model initiating
     write_log(logger, "Instantiating models...")
-    model = Vision_Transformer(n_classes=10, d_model=args.d_model, d_embedding=args.d_embedding, 
+    model = Vision_Transformer(n_classes=1000, d_model=args.d_model, d_embedding=args.d_embedding, 
                                n_head=args.n_head, dim_feedforward=args.dim_feedforward,
-                               num_encoder_layer=args.num_encoder_layer, img_size=32, patch_size=args.patch_size,
+                               num_encoder_layer=args.num_encoder_layer, img_size=224, patch_size=args.patch_size,
                                dropout=args.dropout)
 
     model = model.train()

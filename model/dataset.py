@@ -66,7 +66,7 @@ class CustomDataset(Dataset):
             return image, img_id
         else:
             label = self.label[index]
-            return image, torch.LongTensor(label)
+            return image, label
 
     def __len__(self):
         return self.num_data
