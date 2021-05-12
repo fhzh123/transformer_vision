@@ -4,7 +4,7 @@ import argparse
 
 # Import custom modules
 from train_vit import vit_training
-from train_transgan import transgan_training
+# from train_transgan import transgan_training
 
 def main(args):
     # Time setting
@@ -15,8 +15,8 @@ def main(args):
         vit_training(args)
     
     # TransGAN training
-    if args.transgan_training:
-        transgan_training(args)
+    # if args.transgan_training:
+    #     transgan_training(args)
 
     # Time calculate
     print(f'Done! ; {round((time.time()-total_start_time)/60, 3)}min spend')
@@ -29,7 +29,7 @@ if __name__=='__main__':
     parser.add_argument('--transgan_training', action='store_true')
     parser.add_argument('--resume', action='store_true')
     # Path setting
-    parser.add_argument('--data_path', default='/HDD/kyohoon/acl_workshop', type=str,
+    parser.add_argument('--data_path', default='/HDD/dataset/imagenet/ILSVRC', type=str,
                         help='Original data path')
     parser.add_argument('--save_path', default='/HDD/kyohoon/model_checkpoint/hate_speech/', type=str,
                         help='Model checkpoint file path')

@@ -2,25 +2,20 @@
 import os
 import gc
 import time
-import pickle
-import random
 import logging
 # Import PyTorch
 import torch
 import torchvision
-import torch.nn as nn
-import torch.optim as optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_norm_
 import torchvision.transforms as transforms
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp import GradScaler
 # Import custom modules
+from model.dataset import CustomDataset
 from model.Vision_Transformer import Vision_Transformer
-from optimizer.utils import shceduler_select
+from optimizer.utils import shceduler_select, optimizer_select
 from utils import TqdmLoggingHandler, write_log
-# Import Huggingface
-from transformers import AdamW
 
 def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, logger, device):
 
@@ -113,22 +108,30 @@ def vit_training(args):
     # 1) Dataloader setting
     write_log(logger, "Load data...")
     gc.disable()
-    transform = transforms.Compose(
+    transform_dict = {
+        'train': transforms.Compose(
         [
+            transforms.Resize((224, 224)),
             transforms.RandomHorizontalFlip(p=0.2),
             transforms.ColorJitter(brightness=(0.5, 2)),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ]),
+        'valid': transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
+    }
     dataset_dict = {
-        'train': torchvision.datasets.CIFAR10(root='./dataset/cifar10', 
-            train=True, download=False, transform=transform),
-        'valid': torchvision.datasets.CIFAR10(root='./dataset/cifar10', 
-            train=False, download=False, transform=transform)
+        'train': CustomDataset(data_path=args.data_path, 
+                            transform=transform_dict['train'], phase='train'),
+        'valid': CustomDataset(data_path=args.data_path, 
+                            transform=transform_dict['valid'], phase='valid')
     }
     dataloader_dict = {
         'train': DataLoader(dataset_dict['train'], drop_last=True,
-                            batch_size=args.batch_size, shuffle=True, pin_memory=True,
+                            batch_size=args.batch_size, shuffle=False, pin_memory=True,
                             num_workers=args.num_workers),
         'valid': DataLoader(dataset_dict['valid'], drop_last=False,
                             batch_size=args.batch_size, shuffle=False, pin_memory=True,
