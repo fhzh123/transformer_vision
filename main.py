@@ -36,13 +36,13 @@ if __name__=='__main__':
     # Model setting
     parser.add_argument('--patch_size', default=16, type=int, 
                         help='ViT patch size; Default is 16')
-    parser.add_argument('--d_model', default=512, type=int, 
-                        help='Transformer model dimension; Default is 512')
+    parser.add_argument('--d_model', default=768, type=int, 
+                        help='Transformer model dimension; Default is 768')
     parser.add_argument('--d_embedding', default=256, type=int, 
                         help='Transformer embedding word token dimension; Default is 256')
-    parser.add_argument('--n_head', default=8, type=int, 
-                        help="Multihead Attention's head count; Default is 8")
-    parser.add_argument('--dim_feedforward', default=2048, type=int, 
+    parser.add_argument('--n_head', default=12, type=int, 
+                        help="Multihead Attention's head count; Default is 12")
+    parser.add_argument('--dim_feedforward', default=3120, type=int, 
                         help="Feedforward network's dimension; Default is 3120")
     parser.add_argument('--dropout', default=0.3, type=float, 
                         help="Dropout ration; Default is 0.3")

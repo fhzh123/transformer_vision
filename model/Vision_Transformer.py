@@ -34,11 +34,11 @@ class Vision_Transformer(nn.Module):
 
     def forward(self, src_img: Tensor) -> Tensor:
         # Image embedding
-        emb_out = self.patch_embedding(src_img).transpose(0, 1)
+        encoder_out = self.patch_embedding(src_img).transpose(0, 1)
         
         # Transformer Encoder
         for encoder in self.encoders:
-            encoder_out = encoder(emb_out)
+            encoder_out = encoder(encoder_out)
 
         # Target linear
         encoder_out = encoder_out.transpose(0, 1)

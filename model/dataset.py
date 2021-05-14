@@ -2,7 +2,6 @@ import os
 import numpy as np
 import pandas as pd
 from PIL import Image
-import torch
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 
@@ -11,7 +10,7 @@ class CustomDataset(Dataset):
         self.phase = phase.lower()
         self.data_path = data_path
 
-        # data_path = '/HDD/dataset/imagenet/ILSVRC/*
+        # data_path = '/HDD/dataset/imagenet/ILSVRC/*'
         if self.phase == 'train':
             self.data = pd.read_csv(
                 os.path.join(data_path, 'ImageSets/CLS-LOC/train_cls.txt'), 
@@ -35,6 +34,7 @@ class CustomDataset(Dataset):
             self.label_dat = pd.read_csv(
                 os.path.join(data_path, 'ImageSets/CLS-LOC/LOC_val_solution.csv'), 
                 )
+            self.label_dat = self.label_dat.sort_values(by='ImageId')
             self.label_dat['label_code'] = self.label_dat['PredictionString'].apply(lambda x: x.split()[0])
             label_map = pd.read_csv(
                 os.path.join(data_path, 'ImageSets/CLS-LOC/map_clsloc.txt'), 
