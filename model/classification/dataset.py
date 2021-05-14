@@ -1,9 +1,9 @@
 import os
-import numpy as np
 import pandas as pd
 from PIL import Image
-import torchvision.transforms as transforms
+# Import PyTorch
 from torch.utils.data import Dataset
+import torchvision.transforms as transforms
 
 class CustomDataset(Dataset):
     def __init__(self, data_path, transform=None, phase='train'):

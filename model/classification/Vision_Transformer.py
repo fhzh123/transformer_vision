@@ -5,13 +5,14 @@ from torch import Tensor
 from torch.nn import functional as F
 from torch.nn.modules.activation import MultiheadAttention
 # Import custom modules
-from .layers import PatchEmbedding, TransformerEncoderLayer
-# from .layers import PatchEmbedding
-# from .transformer import TransformerEncoder, ClassificationHead
+from ..transformer.embedding import PatchEmbedding
+from ..transformer.layer import TransformerEncoderLayer
 
 class Vision_Transformer(nn.Module):
-    def __init__(self, n_classes, d_model=512, d_embedding=256, n_head=8, dim_feedforward=2048,
-            num_encoder_layer=10, img_size=224, patch_size=16, dropout=0.3):
+    def __init__(self, n_classes: int, d_model: int = 512, d_embedding: int = 256, 
+                 n_head: int = 8, dim_feedforward: int = 2048,
+                 num_encoder_layer: int = 10, num_decoder_layer: int = 10,
+                 img_size: int = 224, patch_size: int = 16, dropout: float = 0.3):
     
         super(Vision_Transformer, self).__init__()
 
