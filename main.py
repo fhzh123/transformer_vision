@@ -3,16 +3,20 @@ import time
 import argparse
 
 # Import custom modules
-from train_vit import vit_training
+# from train.train_vit import vit_training
+from train.train_cap import captioning_training
 # from train_transgan import transgan_training
 
 def main(args):
     # Time setting
     total_start_time = time.time()
 
-    # training
-    if args.vit_training:
-        vit_training(args)
+    # # training
+    # if args.vit_training:
+    #     vit_training(args)
+
+    if args.captioning_training:
+        captioning_training(args)
     
     # TransGAN training
     # if args.transgan_training:
@@ -26,13 +30,33 @@ if __name__=='__main__':
     # Task setting
     parser.add_argument('--preprocessing', action='store_true')
     parser.add_argument('--vit_training', action='store_true')
+    parser.add_argument('--captioning_training', action='store_true')
     parser.add_argument('--transgan_training', action='store_true')
     parser.add_argument('--resume', action='store_true')
     # Path setting
-    parser.add_argument('--data_path', default='/HDD/dataset/imagenet/ILSVRC', type=str,
+    parser.add_argument('--preprocess_path', default='./preprocessing', type=str,
+                        help='Pre-processed data save path')
+    parser.add_argument('--data_path', default='/HDD/dataset/coco', type=str,
                         help='Original data path')
-    parser.add_argument('--save_path', default='/HDD/kyohoon/model_checkpoint/hate_speech/', type=str,
+    parser.add_argument('--save_path', default='/HDD/kyohoon/model_checkpoint/', type=str,
                         help='Model checkpoint file path')
+    # Data setting
+    parser.add_argument('--img_size', default=224, type=int,
+                        help='Image resize size; Default is 224')
+    parser.add_argument('--vocab_size', default=8000, type=int,
+                        help='Caption vocabulary size; Default is 8000')
+    parser.add_argument('--pad_id', default=0, type=int,
+                        help='Padding token index; Default is 0')
+    parser.add_argument('--unk_id', default=3, type=int,
+                        help='Unknown token index; Default is 3')
+    parser.add_argument('--bos_id', default=1, type=int,
+                        help='Start token index; Default is 1')
+    parser.add_argument('--eos_id', default=2, type=int,
+                        help='End token index; Default is 2')
+    parser.add_argument('--min_len', default=4, type=int,
+                        help='Minimum length of caption; Default is 4')
+    parser.add_argument('--max_len', default=300, type=int,
+                        help='Maximum length of caption; Default is 300')
     # Model setting
     parser.add_argument('--patch_size', default=16, type=int, 
                         help='ViT patch size; Default is 16')
@@ -46,8 +70,8 @@ if __name__=='__main__':
                         help="Feedforward network's dimension; Default is 3120")
     parser.add_argument('--dropout', default=0.3, type=float, 
                         help="Dropout ration; Default is 0.3")
-    parser.add_argument('--num_common_layer', default=8, type=int, 
-                        help="In PTransformer, parallel layer count; Default is 8")
+    parser.add_argument('--embedding_dropout', default=0.15, type=float, 
+                        help="Embedding dropout ration; Default is 0.15")
     parser.add_argument('--num_encoder_layer', default=8, type=int, 
                         help="Number of encoder layers; Default is 8")
     parser.add_argument('--num_decoder_layer', default=8, type=int, 

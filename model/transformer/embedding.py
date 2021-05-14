@@ -59,7 +59,7 @@ class PositionalEmbedding(nn.Module):
 
 class TransformerEmbedding(nn.Module):
 
-    def __init__(self, vocab_size, d_model, embed_size, pad_idx=0, max_len=512, dropout=0.1):
+    def __init__(self, vocab_size, d_model, embed_size, pad_idx=0, max_len=512, embedding_dropout=0.1):
         """
         :param vocab_size: total vocab size
         :param embed_size: embedding size of token embedding
@@ -70,7 +70,7 @@ class TransformerEmbedding(nn.Module):
         self.linear_layer = nn.Linear(embed_size, d_model)
         self.position = PositionalEmbedding(d_model=d_model, max_len=max_len)
         self.embed_norm = nn.LayerNorm(d_model, eps=1e-12)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(embedding_dropout)
 
     def forward(self, sequence):
         x = self.dropout(F.gelu(self.linear_layer(self.token(sequence))))
