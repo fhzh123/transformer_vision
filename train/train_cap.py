@@ -17,6 +17,28 @@ from model.Vision_Transformer import Vision_Transformer
 from optimizer.utils import shceduler_select, optimizer_select
 from utils import TqdmLoggingHandler, write_log
 
+def preprocessing(args):
+    start_time = time.time()
+    with open(os.path.join(args.data_path, 'annotations/captions_train2017.json'), 'r') as f:
+        data_ = json.load(f)['annotations']
+
+    #===================================#
+    #===========SentencePiece===========#
+    #===================================#
+
+    # 1) Make Korean text to train vocab
+    with open(f'{args.preprocess_path}/train_text.txt', 'w') as f:
+        for c in data_:
+            f.write(f'{c['caption']}\n')
+
+    # 2) SentencePiece model training
+    spm.SentencePieceProcessor()
+    spm.SentencePieceTrainer.Train(
+        f'--input={args.preprocess_path}/train_text.txt --model_prefix={args.preprocess_path}/spm_train_{args.vocab_size} '
+        f'--model_type={args.sentencepiece_model} --character_coverage=0.9995 --vocab_size={args.vocab_size} '
+        f'--pad_id={args.pad_id} --unk_id={args.unk_id} --bos_id={args.bos_id} --eos_id={args.eos_id} '
+        f'--split_by_whitespace=true')
+
 def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, logger, device):
 
     # Train setting
@@ -90,6 +112,9 @@ def valid_epoch(args, model, dataloader, device):
 def vit_training(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    if not os.path.exists(args.preprocess_path):
+        os.mkdir(args.preprocess_path)
+
     #===================================#
     #==============Logging==============#
     #===================================#
@@ -105,7 +130,14 @@ def vit_training(args):
     #============Data Load==============#
     #===================================#
 
-    # 1) Dataloader setting
+    # 1) SentencePiece load
+    if not os.path.isfile(f'spm_train_{args.vocab_size}.model'):
+        preprocessing(args)
+
+    spm_model = spm.SentencePieceProcessor()
+    spm_model.Load(f'spm_train_{args.vocab_size}.model')
+
+    # 2) Dataloader setting
     write_log(logger, "Load data...")
     gc.disable()
     transform_dict = {
@@ -125,9 +157,9 @@ def vit_training(args):
         ])
     }
     dataset_dict = {
-        'train': CustomDataset(data_path=args.data_path, 
+        'train': CustomDataset(data_path=args.data_path, spm_model=spm_model,
                             transform=transform_dict['train'], phase='train'),
-        'valid': CustomDataset(data_path=args.data_path, 
+        'valid': CustomDataset(data_path=args.data_path, spm_model=spm_model,
                             transform=transform_dict['valid'], phase='valid')
     }
     dataloader_dict = {
