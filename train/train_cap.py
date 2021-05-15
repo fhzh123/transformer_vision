@@ -77,7 +77,7 @@ def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, lo
         if args.scheduler in ['constant', 'warmup']:
             scheduler.step()
         if args.scheduler == 'reduce_train':
-            scheduler.step(mlm_loss)
+            scheduler.step(loss)
 
         # Print loss value only training
         acc = (predicted.argmax(dim=1) == label).sum() / len(label)
@@ -96,12 +96,10 @@ def valid_epoch(args, model, dataloader, device):
     model = model.eval()
     val_loss = 0
     val_acc = 0
+    tgt_mask = model.generate_square_subsequent_mask(args.max_len - 1, device)
 
     with torch.no_grad():
         for i, (img, caption) in enumerate(dataloader):
-
-            # Optimizer setting
-            optimizer.zero_grad()
 
             # Input, output setting
             img = img.to(device, non_blocking=True)
