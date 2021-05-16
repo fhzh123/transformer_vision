@@ -6,6 +6,7 @@ import argparse
 # from train.train_vit import vit_training
 from train.train_cap import captioning_training
 # from train_transgan import transgan_training
+from utils import str2bool
 
 def main(args):
     # Time setting
@@ -58,6 +59,8 @@ if __name__=='__main__':
     parser.add_argument('--max_len', default=300, type=int,
                         help='Maximum length of caption; Default is 300')
     # Model setting
+    parser.add_argument('--parallel', default=False, type=str2bool,
+                        help='Transformer Encoder and Decoder parallel mode; Default is False')
     parser.add_argument('--patch_size', default=16, type=int, 
                         help='ViT patch size; Default is 16')
     parser.add_argument('--d_model', default=768, type=int, 
@@ -76,6 +79,10 @@ if __name__=='__main__':
                         help="Number of encoder layers; Default is 8")
     parser.add_argument('--num_decoder_layer', default=8, type=int, 
                         help="Number of decoder layers; Default is 8")
+    parser.add_argument('--trg_emb_prj_weight_sharing', default=False, type=str2bool, 
+                        help="Share weight between target embedding & last dense layer; Default is False")
+    parser.add_argument('--emb_src_trg_weight_sharing', default=False, type=str2bool, 
+                        help="Share weight between source and target embedding; Default is False")
     # Training setting
     parser.add_argument('--num_workers', default=8, type=int, 
                         help='Num CPU Workers; Default is 8')

@@ -197,11 +197,12 @@ def captioning_training(args):
     # 1) Model initiating
     write_log(logger, "Instantiating models...")
     model = Vision_Transformer(trg_vocab_num=args.vocab_size, d_model=args.d_model, d_embedding=args.d_embedding, 
-                               n_head=args.n_head, dim_feedforward=args.dim_feedforward,
-                               img_size=args.img_size, patch_size=args.patch_size, max_len=args.max_len,
-                               pad_id=args.pad_id, unk_id=args.unk_id, bos_id=args.bos_id, eos_id=args.eos_id,
+                               n_head=args.n_head, dim_feedforward=args.dim_feedforward, img_size=args.img_size, 
+                               patch_size=args.patch_size, max_len=args.max_len, pad_id=args.pad_id, 
                                num_encoder_layer=args.num_encoder_layer, num_decoder_layer=args.num_decoder_layer,
-                               dropout=args.dropout, embedding_dropout=args.embedding_dropout)
+                               dropout=args.dropout, embedding_dropout=args.embedding_dropout, parallel=args.parallel,
+                               trg_emb_prj_weight_sharing=args.trg_emb_prj_weight_sharing,
+                               emb_src_trg_weight_sharing=args.emb_src_trg_weight_sharing)
     model = model.train()
     model = model.to(device)
 

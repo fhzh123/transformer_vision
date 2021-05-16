@@ -13,14 +13,25 @@ class Vision_Transformer(nn.Module):
     def __init__(self, trg_vocab_num: int, d_model: int = 512, d_embedding: int = 256, 
                  n_head: int = 8, dim_feedforward: int = 2048,
                  img_size: int = 224, patch_size: int = 16, max_len: int = 300,
-                 pad_id: int = 0, unk_id: int = 3, bos_id: int = 1, eos_id: int = 2,
-                 num_encoder_layer: int = 10, num_decoder_layer: int = 10,
-                 dropout: float = 0.3, embedding_dropout: float = 0.15):
+                 pad_id: int = 0, num_encoder_layer: int = 10, num_decoder_layer: int = 10,
+                 dropout: float = 0.3, embedding_dropout: float = 0.15, parallel: bool = False,
+                 trg_emb_prj_weight_sharing: bool = False, emb_src_trg_weight_sharing: bool = False):
     
         super(Vision_Transformer, self).__init__()
 
-        self.dropout = nn.Dropout(dropout)
+        # Hyper-parameter setting
         self.pad_id = pad_id
+
+        # Initialization
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.kaiming_uniform_(p) 
+
+        # Parallel Transformer
+        self.parallel = parallel
+        if self.parallel:
+            self.num_common_layers = min(num_encoder_layer, num_decoder_layer)
+            self.num_encoder_nonparallel = num_encoder_layer - num_common_layers
 
         # Image embedding part
         self.patch_embedding = PatchEmbedding(in_channels=3, patch_size=patch_size,
@@ -44,9 +55,20 @@ class Vision_Transformer(nn.Module):
                 dim_feedforward, dropout=dropout) for i in range(num_decoder_layer)])
 
         # Target linear part (Not averaging)
+        self.trg_dropout = nn.Dropout(dropout)
         self.trg_output_linear = nn.Linear(d_model, d_embedding)
         self.trg_output_norm = nn.LayerNorm(d_embedding, eps=1e-12)
         self.trg_output_linear2 = nn.Linear(d_embedding, trg_vocab_num)
+
+        # Transformer technique
+        self.x_logit_scale = 1.
+        if trg_emb_prj_weight_sharing:
+            self.trg_output_linear2.weight = self.TransformerEmbedding.token.weight
+            self.x_logit_scale = (d_model ** -0.5)
+
+        if emb_src_trg_weight_sharing:
+            self.patch_embedding.embedding_linear.weight = \
+                self.trg_output_linear.weight
 
     @autocast()
     def forward(self, src_img: Tensor, trg_text: Tensor, tgt_mask: Tensor, 
@@ -57,23 +79,44 @@ class Vision_Transformer(nn.Module):
         # Text embedding
         tgt_key_padding_mask = (trg_text == self.pad_id)
         decoder_out = self.text_embedding(trg_text).transpose(0, 1)
-        
-        # Transformer Encoder
-        for encoder in self.encoders:
-            encoder_out = encoder(encoder_out)
 
-        # Transformer Decoder
-        for decoder in self.decoders:
-            decoder_out = decoder(decoder_out, encoder_out, tgt_mask=tgt_mask,
-                tgt_key_padding_mask=tgt_key_padding_mask)
+        # Parallel mode
+        if self.parallel:
+            # Transformer Encoder
+            for encoder in self.encoders[:self.num_encoder_nonparallel+1]:
+                encoder_out = encoder(encoder_out)
+
+            # Parallel Transformer
+            for encoder, decoder in zip(
+                    self.encoders[self.num_encoder_nonparallel+1:],
+                    self.decoders[:self.num_common_layers-1]):
+                decoder_out = decoder(decoder_out, encoder_out, tgt_mask=tgt_mask,
+                    tgt_key_padding_mask=tgt_key_padding_mask)
+                encoder_out = encoder(encoder_out)
+
+            # Transformer Decoder
+            for decoder in self.decoders[self.num_common_layers-1:]:
+                decoder_out = decoder(decoder_out, encoder_out, tgt_mask=tgt_mask,
+                    tgt_key_padding_mask=tgt_key_padding_mask)
+
+        # Non-Parallel (Original) mode
+        else:
+            # Transformer Encoder
+            for encoder in self.encoders:
+                encoder_out = encoder(encoder_out)
+
+            # Transformer Decoder
+            for decoder in self.decoders:
+                decoder_out = decoder(decoder_out, encoder_out, tgt_mask=tgt_mask,
+                    tgt_key_padding_mask=tgt_key_padding_mask)
 
         # Target linear
         decoder_out = decoder_out.transpose(0, 1).contiguous()
         if non_pad_position is not None:
             decoder_out = decoder_out[non_pad_position]
-        decoder_out = self.trg_output_norm(self.dropout(F.gelu(self.trg_output_linear(decoder_out))))
+        decoder_out = self.trg_output_norm(self.trg_dropout(F.gelu(self.trg_output_linear(decoder_out))))
         decoder_out = self.trg_output_linear2(decoder_out)
-        return decoder_out
+        return decoder_out * self.x_logit_scale
 
     @staticmethod
     def generate_square_subsequent_mask(sz, device):
