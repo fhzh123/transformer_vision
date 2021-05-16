@@ -12,16 +12,25 @@ def main(args):
     # Time setting
     total_start_time = time.time()
 
-    # # training
-    # if args.vit_training:
-    #     vit_training(args)
+    # if args.model.lower() == 'ViT':
+    #     if args.training:
+    #         vit_training(args)
+    #     if args.testing:
+    #         vit_testing(args)
 
-    if args.captioning_training:
-        captioning_training(args)
-    
-    # TransGAN training
-    # if args.transgan_training:
-    #     transgan_training(args)
+    if args.model.lower() == 'Captioning':
+        if args.preprocessing:
+            pass
+        if args.training:
+            captioning_training(args)
+        # if args.testing:
+        #     captioning_testing(args)
+
+    # if args.model.lower() == 'TransGAN':
+    #     if args.training:
+    #         transgan_training(args)
+    #     if args.testing:
+    #         transgan_testing(args)
 
     # Time calculate
     print(f'Done! ; {round((time.time()-total_start_time)/60, 3)}min spend')
@@ -29,10 +38,11 @@ def main(args):
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Parsing Method')
     # Task setting
+    parser.add_argument('--model', type=str, choices=['ViT', 'Captioning', 'TransGAN'],
+                        help="Choose model in 'ViT', 'Captioning', 'TransGAN'")
     parser.add_argument('--preprocessing', action='store_true')
-    parser.add_argument('--vit_training', action='store_true')
-    parser.add_argument('--captioning_training', action='store_true')
-    parser.add_argument('--transgan_training', action='store_true')
+    parser.add_argument('--training', action='store_true')
+    parser.add_argument('--testing', action='store_true')
     parser.add_argument('--resume', action='store_true')
     # Path setting
     parser.add_argument('--preprocess_path', default='./preprocessing', type=str,
