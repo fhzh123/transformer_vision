@@ -31,7 +31,7 @@ class Vision_Transformer(nn.Module):
         self.parallel = parallel
         if self.parallel:
             self.num_common_layers = min(num_encoder_layer, num_decoder_layer)
-            self.num_encoder_nonparallel = num_encoder_layer - num_common_layers
+            self.num_encoder_nonparallel = num_encoder_layer - self.num_common_layers
 
         # Image embedding part
         self.patch_embedding = PatchEmbedding(in_channels=3, patch_size=patch_size,
