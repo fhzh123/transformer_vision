@@ -15,7 +15,7 @@ from torch.cuda.amp import GradScaler
 from model.classification.dataset import CustomDataset
 from model.classification.classification_model import Vision_Transformer
 from optimizer.utils import shceduler_select, optimizer_select
-from utils import TqdmLoggingHandler, write_log
+from utils import TqdmLoggingHandler, write_log, label_smoothing_loss
 
 def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, logger, device):
 
@@ -37,7 +37,7 @@ def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, lo
         first_token = logit[:,0,:]
 
         # Loss calculate
-        loss = F.cross_entropy(first_token, label)
+        loss = label_smoothing_loss(first_token, label)
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         clip_grad_norm_(model.parameters(), args.clip_grad_norm)
@@ -115,13 +115,13 @@ def vit_training(args):
             transforms.RandomHorizontalFlip(p=0.3),
             transforms.ColorJitter(brightness=(0.5, 2)),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ]),
         'valid': transforms.Compose(
         [
             transforms.Resize((args.img_size, args.img_size)),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
     }
     dataset_dict = {
