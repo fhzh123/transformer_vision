@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
 class CustomDataset(Dataset):
-    def __init__(self, data_path, spm_model, transform=None, phase='train', min_len=4, max_len=300):
+    def __init__(self, data_path, spm_model=None, transform=None, phase='train', min_len=4, max_len=300):
 
         # Pre-setting
         except_count = 0

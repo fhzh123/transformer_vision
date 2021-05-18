@@ -4,8 +4,8 @@ import argparse
 
 # Import custom modules
 # from train.train_vit import vit_training
-from train.train_cap import captioning_training
-# from train_transgan import transgan_training
+#from train.train_cap import captioning_training
+from train.train_transgan import transgan_training
 from utils import str2bool
 
 def main(args):
@@ -18,17 +18,17 @@ def main(args):
     #     if args.testing:
     #         vit_testing(args)
 
-    if args.model.lower() == 'Captioning':
-        if args.preprocessing:
-            pass
-        if args.training:
-            captioning_training(args)
+    #if args.model.lower() == 'Captioning':
+        #if args.preprocessing:
+            #pass
+        #if args.training:
+            #captioning_training(args)
         # if args.testing:
         #     captioning_testing(args)
 
-    # if args.model.lower() == 'TransGAN':
-    #     if args.training:
-    #         transgan_training(args)
+    #if args.model.lower() == 'TransGAN':
+         #if args.training:
+    transgan_training(args)
     #     if args.testing:
     #         transgan_testing(args)
 
@@ -38,7 +38,7 @@ def main(args):
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Parsing Method')
     # Task setting
-    parser.add_argument('--model', type=str, choices=['ViT', 'Captioning', 'TransGAN'],
+    parser.add_argument('--model', default='TransGAN' ,type=str, choices=['ViT', 'Captioning', 'TransGAN'],
                         help="Choose model in 'ViT', 'Captioning', 'TransGAN'")
     parser.add_argument('--preprocessing', action='store_true')
     parser.add_argument('--training', action='store_true')
@@ -121,5 +121,10 @@ if __name__=='__main__':
     parser.add_argument('--print_freq', default=100, type=int, 
                         help='Print training process frequency; Default is 100')
     args = parser.parse_args()
+
+    # GAN settings
+    parser.add_argument('--gen_batch_size', default = 32, type = int)
+    parser.add_argument('--dis_batch_size', default=16, type = int)
+
 
     main(args)
