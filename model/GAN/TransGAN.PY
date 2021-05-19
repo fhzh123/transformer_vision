@@ -50,36 +50,49 @@ class Generator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT �
         
         # Transformer Encoder part
         if model_type == 'TransGAN_XL': 
-            self_attn = MultiheadAttention(self.embed_dim, n_head, dropout=self.dropout_ratio)
+            self_attn_1 = MultiheadAttention(self.embed_dim, n_head, dropout=self.dropout_ratio)
             self.first_stage_encoders = nn.ModuleList([
-                TransformerEncoderLayer(self.embed_dim, self_attn, dim_feedforward, dropout=self.dropout_ratio ) \
+                TransformerEncoderLayer(self.embed_dim, self_attn_1, dim_feedforward, dropout=self.dropout_ratio ) \
                 for i in range(5)
                 ])
+            self_attn_2 = MultiheadAttention(self.embed_dim//4, n_head, dropout=self.dropout_ratio)
             self.second_stage_encoders = nn.ModuleList([
-                TransformerEncoderLayer(self.embed_dim, self_attn, dim_feedforward, dropout=self.dropout_ratio ) \
+                TransformerEncoderLayer(self.embed_dim//4, self_attn_2, dim_feedforward, dropout=self.dropout_ratio ) \
                 for i in range(4)
             ])
+            self_attn_3 = MultiheadAttention(self.embed_dim//16, n_head, dropout=self.dropout_ratio)
             self.third_stage_encoders = nn.ModuleList([
-                TransformerEncoderLayer(self.embed_dim, self_attn, dim_feedforward, dropout=self.dropout_ratio ) \
+                TransformerEncoderLayer(self.embed_dim//16, self_attn_3, dim_feedforward, dropout=self.dropout_ratio ) \
                 for i in range(2)
             ])
-            self.pos_embed_1 = PositionalEmbedding(d_model = self.embed_dim ,dropout = self.dropout_ratio)
+            self.pos_embed_1 = PositionalEmbedding(d_model = self.embed_dim)
+
+            self.deconv = nn.Sequential(
+            nn.Conv2d(self.embed_dim//16, 3, 1, 1, 0)
+            )
+
+            self.to_rgb = nn.Sequential(
+                nn.BatchNorm2d(args.latent_dim),
+                nn.ReLU(),
+                # nn.Conv2d(args.gf_dim, 3, 3, 1, 1),
+                nn.Tanh()
+                )
 
     def forward(self, z):
         
         x = self.mlp(z).view(-1, self.bottom_width ** 2, self.embed_dim)
-        x = x + self.pos_embed_1
+        x = x + self.pos_embed_1(x)
         H, W= self.bottom_width, self.bottom_width
 
         for first_stage_encoder in self.first_stage_encoders: 
             x = first_stage_encoder(x)
 
-        x, H, W = pixel_upsample(x)
+        x, H, W = pixel_upsample(x, H, W)
 
         for second_stage_encoder in self.second_stage_encoders:
             x = second_stage_encoder(x)
         
-        x, H, W = pixel_upsample(x)
+        x, H, W = pixel_upsample(x, H, W)
 
         for third_stage_encoder in self.third_stage_encoders:
             x = third_stage_encoder(x)
@@ -89,12 +102,14 @@ class Generator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT �
                    
 
 class Discriminator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT 그대로 사용 
-    def __init__(self, n_classes: int, d_model: int = 512, d_embedding: int = 256, 
+    def __init__(self, args, n_classes: int = 1, d_model: int = 512, d_embedding: int = 256, 
                  n_head: int = 8, dim_feedforward: int = 2048,
                  num_encoder_layer: int = 10, num_decoder_layer: int = 10,
                  img_size: int = 224, patch_size: int = 16, dropout: float = 0.3):
          
-        super(Discirminator, self).__init__()
+        super(Discriminator, self).__init__()
+        d_embedding = d_model = args.d_embedding
+        img_size = args.img_size
 
         self.dropout = nn.Dropout(dropout)
 

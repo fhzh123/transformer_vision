@@ -1,4 +1,5 @@
 # Import modules
+from model.GAN.CelebA import CelebA
 import os
 import gc
 import time
@@ -37,7 +38,7 @@ def get_attn_mask(N, w):
 
 
 
-def train_epoch(args, epoch, gen_net: nn.Module, dis_net: nn.Module, dataloader, gen_optimizer, dis_optimizer, scheduler, scaler, logger, device):
+def train_epoch(args, epoch, gen_net: nn.Module, dis_net: nn.Module, dataloader, gen_optimizer, dis_optimizer, gen_scheduler, dis_scheduler, scaler, device):
 
     # Train setting
     start_time_e = time.time()
@@ -50,8 +51,7 @@ def train_epoch(args, epoch, gen_net: nn.Module, dis_net: nn.Module, dataloader,
    
 
     #scheduler 
-    gen_scheduler = LinearLrDecay(gen_optimizer, args.g_lr, 0.0, 0, args.max_iter * args.n_critic)
-    dis_scheduler = LinearLrDecay(dis_optimizer, args.d_lr, 0.0, 0, args.max_iter * args.n_critic)
+
 
     for i, img in enumerate(dataloader):
 
@@ -70,7 +70,7 @@ def train_epoch(args, epoch, gen_net: nn.Module, dis_net: nn.Module, dataloader,
         #Train Discriminator
 
         real_validity = dis_net(real_img)
-        fake_img = gen_net(z).detach()
+        fake_img = gen_net(z)
         assert fake_img.size() == real_img.size(), f"fake_imgs.size(): {fake_img.size()} real_imgs.size(): {real_img.size()}"
         fake_validity = dis_net(fake_img)
 
@@ -86,15 +86,16 @@ def train_epoch(args, epoch, gen_net: nn.Module, dis_net: nn.Module, dataloader,
         #Train Generator
         gen_optimizer.zero_grad()
 
-        gen_z = torch.cuda.FloatTensor
-        gen_imgs = gen_net(gen_z, epoch)
+        gen_z = torch.cuda.FloatTensor(np.random.normal(0, 1, (img.shape[0], args.latent_dim) )).to(device)
+        gen_imgs = gen_net(gen_z)
         fake_validity = dis_net(gen_imgs)
         
-        if isinstance(fake_validity, list):
-            g_loss = 0
-            for fake_validity_item in fake_validity:
-                real_label = torch.full((fake_validity_item.shape[0],fake_validity_item.shape[1]), 1., dtype=torch.float, device=real_imgs.get_device())
-                g_loss += nn.MSELoss()(fake_validity_item, real_label)
+        g_loss = 0
+        #if isinstance(fake_validity, list): #need to check
+
+        for fake_validity_item in fake_validity:
+            real_label = torch.full((fake_validity_item.shape[0],fake_validity_item.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
+            g_loss += nn.MSELoss()(fake_validity_item, real_label)
 
         # Back-propagation
         scaler.scale(d_loss).backward()
@@ -197,18 +198,18 @@ def transgan_training(args):
         ])
     }
     dataset_dict = {
-        'train': CustomDataset(data_path=args.data_path,
-                            transform=transform_dict['train'], phase='train'),
-        'valid': CustomDataset(data_path=args.data_path, 
-                            transform=transform_dict['valid'], phase='valid')
+        'train': CelebA(data_path=args.data_path,
+                            transform=transform_dict['train']),
+        #'valid': CelebA(data_path=args.data_path, 
+                            #transform=transform_dict['valid'], phase='valid')
     }
     dataloader_dict = {
         'train': DataLoader(dataset_dict['train'], drop_last=True,
                             batch_size=args.batch_size, shuffle=True, pin_memory=True,
                             num_workers=args.num_workers),
-        'valid': DataLoader(dataset_dict['valid'], drop_last=False,
-                            batch_size=args.batch_size, shuffle=False, pin_memory=True,
-                            num_workers=args.num_workers)
+        #'valid': DataLoader(dataset_dict['valid'], drop_last=False,
+                            #batch_size=args.batch_size, shuffle=False, pin_memory=True,
+                            #num_workers=args.num_workers)
     }
     gc.enable()
     write_log(logger, f"Total number of trainingsets iterations - {len(dataset_dict['train'])}, {len(dataloader_dict['train'])}")
@@ -231,8 +232,10 @@ def transgan_training(args):
     # 2) Optimizer setting
     gen_optimizer = optimizer_select(gen_model, args)
     dis_optimizer = optimizer_select(dis_model, args)
-    gen_scheduler = shceduler_select(gen_optimizer, dataloader_dict, args)
-    dis_scheduler = shceduler_select(dis_optimizer, dataloader_dict, args)
+    #gen_scheduler = shceduler_select(gen_optimizer, dataloader_dict, args)
+    #dis_scheduler = shceduler_select(dis_optimizer, dataloader_dict, args)
+    gen_scheduler =  LinearLrDecay(gen_optimizer,  0.0001, 0.0, 0, 500000 * 5)
+    dis_scheduler =  LinearLrDecay(gen_optimizer,  0.0001, 0.0, 0, 500000 * 5)
     scaler = GradScaler()
 
     # 3) Model resume
@@ -262,7 +265,7 @@ def transgan_training(args):
 
     for epoch in range(start_epoch, args.num_epochs):
 
-        train_epoch(args, epoch,  dataloader_dict['train'], gen_optimizer, dis_optimizer, gen_scheduler, dis_scheduler,  scaler, logger, device)
+        train_epoch(args, epoch,  gen_model, dis_model, dataloader_dict['train'], gen_optimizer, dis_optimizer, gen_scheduler, dis_scheduler, scaler, device)
         #val_loss, val_acc = valid_epoch(args, model, dataloader_dict['valid'], device)
 
         #val_loss /= len(dataloader_dict['valid'])
