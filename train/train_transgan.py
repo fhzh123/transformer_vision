@@ -127,15 +127,15 @@ def train_epoch(args, epoch, global_steps, gen_net: nn.Module, dis_net: nn.Modul
                     "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]" %
                      (epoch, args.num_epochs, i % len(dataloader), len(dataloader), d_loss.item(), g_loss.item()))
 
-        if epoch % 5 == 0:
-            torch.save({
-                'epoch': epoch,
-                'gen_model': gen_model.state_dict(),
-                'dis_model': dis_model.state_dict(),
-                'gen_optimizer': gen_optimizer.state_dict(),
-                'dis_optimizer': dis_optimizer.state_dict(),
-                'scaler': scaler.state_dict()
-            }, os.path.join(args.save_path, 'gan_checkpoint.pth.tar'))
+    if epoch % 5 == 0:
+        torch.save({
+            'epoch': epoch,
+            'gen_model': gen_model.state_dict(),
+            'dis_model': dis_model.state_dict(),
+            'gen_optimizer': gen_optimizer.state_dict(),
+            'dis_optimizer': dis_optimizer.state_dict(),
+            'scaler': scaler.state_dict()
+        }, os.path.join(args.save_path, 'gan_checkpoint.pth.tar'))
 
         # writer.add_image(f'sampled_images_{args.exp_name}', img_grid, global_steps)
             
