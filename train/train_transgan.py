@@ -38,7 +38,7 @@ def get_attn_mask(N, w):
 
 
 
-def train_epoch(args, epoch, gen_net: nn.Module, dis_net: nn.Module, dataloader, gen_optimizer, dis_optimizer, gen_scheduler, dis_scheduler, scaler, device):
+def train_epoch(args, epoch, global_steps, gen_net: nn.Module, dis_net: nn.Module, dataloader,   gen_optimizer, dis_optimizer, gen_scheduler, dis_scheduler, scaler, device):
 
     # Train setting
     start_time_e = time.time()
@@ -52,10 +52,10 @@ def train_epoch(args, epoch, gen_net: nn.Module, dis_net: nn.Module, dataloader,
 
     #scheduler 
 
+    
+    
+    for i, img in enumerate(tqdm(dataloader)):
 
-    for i, img in enumerate(dataloader):
-
-     
          # Optimizer setting
         gen_optimizer.zero_grad()
         dis_optimizer.zero_grad()
@@ -86,7 +86,7 @@ def train_epoch(args, epoch, gen_net: nn.Module, dis_net: nn.Module, dataloader,
         #Train Generator
         gen_optimizer.zero_grad()
 
-        gen_z = torch.cuda.FloatTensor(np.random.normal(0, 1, (img.shape[0], args.latent_dim) )).to(device)
+        gen_z = torch.cuda.FloatTensor(np.random.normal(0, 1, (args.gen_batch_size, args.latent_dim) )).to(device)
         gen_imgs = gen_net(gen_z)
         fake_validity = dis_net(gen_imgs)
         
@@ -108,18 +108,37 @@ def train_epoch(args, epoch, gen_net: nn.Module, dis_net: nn.Module, dataloader,
         scaler.step(dis_optimizer)
         scaler.update()
 
+        
+        g_lr = gen_scheduler.step(global_steps)
+        d_lr = dis_scheduler.step(global_steps)
 
-        # Print loss value only training
-        if gen_step and i % args.print_freq == 0:
-            sample_imgs = gen_imgs[:25]
-            # scale_factor = args.img_size // int(sample_imgs.size(3))
-            # sample_imgs = torch.nn.functional.interpolate(sample_imgs, scale_factor=2)
-            img_grid = make_grid(sample_imgs, nrow=5, normalize=True, scale_each=True)
-            save_image(sample_imgs, f'sampled_images_{args.exp_name}.jpg', nrow=5, normalize=True, scale_each=True)
-            # writer.add_image(f'sampled_images_{args.exp_name}', img_grid, global_steps)
-            tqdm.write(
-                "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]" %
-                (epoch, args.max_epoch, i % len(dataloader), len(dataloader), d_loss.item(), g_loss.item()))
+        gen_step += 1
+
+        with torch.no_grad():
+            # Print loss value only training
+            if gen_step and i % args.print_freq == 0:
+                sample_imgs=gen_imgs[:16]
+                #sample_imgs = [gen_imgs_list[i] for i in range(len(gen_imgs_list))]
+        # scale_factor = args.img_size // int(sample_imgs.size(3))
+        # sample_imgs = torch.nn.functional.interpolate(sample_imgs, scale_factor=2)
+        #img_grid = make_grid(sample_imgs, nrow=5, normalize=True, scale_each=True)
+                save_image(sample_imgs, f'sampled_images_{args.exp_name}.jpg', nrow=5, normalize=True, scale_each=True)
+                print(
+                    "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]" %
+                     (epoch, args.num_epochs, i % len(dataloader), len(dataloader), d_loss.item(), g_loss.item()))
+
+        if epoch % 5 == 0:
+            torch.save({
+                'epoch': epoch,
+                'gen_model': gen_model.state_dict(),
+                'dis_model': dis_model.state_dict(),
+                'gen_optimizer': gen_optimizer.state_dict(),
+                'dis_optimizer': dis_optimizer.state_dict(),
+                'scaler': scaler.state_dict()
+            }, os.path.join(args.save_path, 'gan_checkpoint.pth.tar'))
+
+        # writer.add_image(f'sampled_images_{args.exp_name}', img_grid, global_steps)
+            
 
 
 def valid_epoch(args, model, dataloader, device):
@@ -205,7 +224,7 @@ def transgan_training(args):
     }
     dataloader_dict = {
         'train': DataLoader(dataset_dict['train'], drop_last=True,
-                            batch_size=args.batch_size, shuffle=True, pin_memory=True,
+                            batch_size=args.dis_batch_size, shuffle=True, pin_memory=True,
                             num_workers=args.num_workers),
         #'valid': DataLoader(dataset_dict['valid'], drop_last=False,
                             #batch_size=args.batch_size, shuffle=False, pin_memory=True,
@@ -241,14 +260,12 @@ def transgan_training(args):
     # 3) Model resume
     start_epoch = 0
     if args.resume:
-        checkpoint = torch.load(os.path.join(args.model_path, 'gan_checkpoint.pth.tar'), map_location='cpu')
+        checkpoint = torch.load(os.path.join(args.save_path, 'gan_checkpoint.pth.tar'), map_location='cpu')
         start_epoch = checkpoint['epoch'] + 1
         gen_model.load_state_dict(checkpoint['gen_model'])
         dis_model.load_state_dict(checkpoint['dis_model'])
         gen_optimizer.load_state_dict(checkpoint['gen_optimizer'])
         dis_optimizer.load_state_dict(checkpoint['dis_optimizer'])
-        gen_scheduler.load_state_dict(checkpoint['gen_scheduler'])
-        dis_scheduler.load_state_dict(checkpoint['dis_scheduler'])
         gen_model = gen_model.train()
         gen_model = gen_model.to(device)
         dis_model = dis_model.train()
@@ -263,9 +280,14 @@ def transgan_training(args):
 
     write_log(logger, 'Train start!')
 
+    global_steps = start_epoch * len(dataloader_dict['train'])
+
     for epoch in range(start_epoch, args.num_epochs):
 
-        train_epoch(args, epoch,  gen_model, dis_model, dataloader_dict['train'], gen_optimizer, dis_optimizer, gen_scheduler, dis_scheduler, scaler, device)
+            
+        train_epoch(args, epoch,  global_steps, gen_model, dis_model, dataloader_dict['train'], gen_optimizer, dis_optimizer, gen_scheduler, dis_scheduler, scaler, device)
+        
+        global_steps +=1
         #val_loss, val_acc = valid_epoch(args, model, dataloader_dict['valid'], device)
 
         #val_loss /= len(dataloader_dict['valid'])
