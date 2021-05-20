@@ -21,7 +21,7 @@ from model.classification.dataset import CustomDataset
 from model.GAN.TransGAN import Discriminator, Generator, LinearLrDecay
 from optimizer.utils import shceduler_select, optimizer_select
 from utils import label_smoothing_loss, TqdmLoggingHandler, write_log
-
+from torch.autograd import Variable
 
 def get_attn_mask(N, w):
     mask = torch.zeros(1, 1, N, N).cuda()
@@ -35,7 +35,28 @@ def get_attn_mask(N, w):
             mask[:, :, i, i-w:i] = 1
     return mask
 
+def compute_gradient_penalty(D, real_samples, fake_samples, phi):
+    """Calculates the gradient penalty loss for WGAN GP"""
+    # Random weight term for interpolation between real and fake samples
+    alpha = torch.Tensor(np.random.random((real_samples.size(0), 1, 1, 1))).to(real_samples.get_device())
+    alpha = alpha.expand_as(real_samples)
+    # Get random interpolation between real and fake samples
+    interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
+    d_interpolates = D(interpolates)
+    fake = Variable(torch.cuda.FloatTensor(real_samples.shape[0], 1, 1, 1).fill_(1.0), requires_grad=False)
+    # Get gradient w.r.t. interpolates
+    gradients = torch.autograd.grad(
+        outputs=d_interpolates,
+        inputs=interpolates,
+        grad_outputs=torch.ones(d_interpolates.size()).cuda(),
+        create_graph=True,
+        retain_graph=True,
+        only_inputs=True,
+    )[0]
+    gradients = gradients.view(gradients.size(0), -1)
+    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
 
+    return gradient_penalty
 
 
 def train_epoch(args, epoch, global_steps, gen_net: nn.Module, dis_net: nn.Module, dataloader,   gen_optimizer, dis_optimizer, gen_scheduler, dis_scheduler, scaler, device):
@@ -76,13 +97,41 @@ def train_epoch(args, epoch, global_steps, gen_net: nn.Module, dis_net: nn.Modul
 
         #Discriminator loss
         d_loss = 0
-        for real_validity_item, fake_validity_item in zip(real_validity, fake_validity):
-            real_label = torch.full((real_validity_item.shape[0],real_validity_item.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
-            fake_label = torch.full((real_validity_item.shape[0],real_validity_item.shape[1]), 0., dtype=torch.float, device=real_img.get_device())
-            d_real_loss = nn.MSELoss()(real_validity_item, real_label)
-            d_fake_loss = nn.MSELoss()(fake_validity_item, fake_label)
-            d_loss += d_real_loss + d_fake_loss
-
+        
+         # cal loss
+        if args.loss == 'hinge':
+            d_loss = 0
+            d_loss = torch.mean(nn.ReLU(inplace=True)(1.0 - real_validity)) + \
+                    torch.mean(nn.ReLU(inplace=True)(1 + fake_validity))
+        elif args.loss == 'standard':
+            real_label = torch.full((img.shape[0],), 1., dtype=torch.float, device=real_img.get_device())
+            fake_label = torch.full((img.shape[0],), 0., dtype=torch.float, device=real_img.get_device())
+            real_validity = nn.Sigmoid()(real_validity.view(-1))
+            fake_validity = nn.Sigmoid()(fake_validity.view(-1))
+            d_real_loss = nn.BCELoss()(real_validity, real_label)
+            d_fake_loss = nn.BCELoss()(fake_validity, fake_label)
+        elif args.loss == 'lsgan':
+            if isinstance(fake_validity, list):
+                d_loss = 0
+                for real_validity_item, fake_validity_item in zip(real_validity, fake_validity):
+                    real_label = torch.full((real_validity_item.shape[0],real_validity_item.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
+                    fake_label = torch.full((real_validity_item.shape[0],real_validity_item.shape[1]), 0., dtype=torch.float, device=real_img.get_device())
+                    d_real_loss = nn.MSELoss()(real_validity_item, real_label)
+                    d_fake_loss = nn.MSELoss()(fake_validity_item, fake_label)
+                    d_loss += d_real_loss + d_fake_loss
+            else:
+                real_label = torch.full((real_validity.shape[0],real_validity.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
+                fake_label = torch.full((real_validity.shape[0],real_validity.shape[1]), 0., dtype=torch.float, device=real_img.get_device())
+                d_real_loss = nn.MSELoss()(real_validity, real_label)
+                d_fake_loss = nn.MSELoss()(fake_validity, fake_label)
+                d_loss = d_real_loss + d_fake_loss
+        elif args.loss == 'wgangp-eps':
+            gradient_penalty = compute_gradient_penalty(dis_net, real_img, fake_img.detach(), 1)
+            d_loss = -torch.mean(real_validity) + torch.mean(fake_validity) + gradient_penalty * 10 / (
+                    1 ** 2)
+            d_loss += (torch.mean(real_validity) ** 2) * 1e-3
+        else:
+            raise NotImplementedError(args.loss)
         #Train Generator
         gen_optimizer.zero_grad()
 
@@ -91,11 +140,22 @@ def train_epoch(args, epoch, global_steps, gen_net: nn.Module, dis_net: nn.Modul
         fake_validity = dis_net(gen_imgs)
         
         g_loss = 0
-        #if isinstance(fake_validity, list): #need to check
-
-        for fake_validity_item in fake_validity:
-            real_label = torch.full((fake_validity_item.shape[0],fake_validity_item.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
-            g_loss += nn.MSELoss()(fake_validity_item, real_label)
+        if args.loss == "standard":
+            real_label = torch.full((args.gen_batch_size,), 1., dtype=torch.float, device=real_img.get_device())
+            fake_validity = nn.Sigmoid()(fake_validity.view(-1))
+            g_loss = nn.BCELoss()(fake_validity.view(-1), real_label)
+        if args.loss == "lsgan":
+            if isinstance(fake_validity, list):
+                g_loss = 0
+                for fake_validity_item in fake_validity:
+                    real_label = torch.full((fake_validity_item.shape[0],fake_validity_item.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
+                    g_loss += nn.MSELoss()(fake_validity_item, real_label)
+            else:
+                real_label = torch.full((fake_validity.shape[0],fake_validity.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
+                # fake_validity = nn.Sigmoid()(fake_validity.view(-1))
+                g_loss = nn.MSELoss()(fake_validity, real_label)
+        else:
+            g_loss = -torch.mean(fake_validity)
 
         # Back-propagation
         scaler.scale(d_loss).backward()

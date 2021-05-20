@@ -47,9 +47,9 @@ if __name__=='__main__':
     # Path setting
     parser.add_argument('--preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-    parser.add_argument('--data_path', default='./celeba', type=str,
+    parser.add_argument('--data_path', default='./dataset/celeba', type=str,
                         help='Original data path')
-    parser.add_argument('--save_path', default='/HDD/kyohoon/model_checkpoint/', type=str,
+    parser.add_argument('--save_path', default='./', type=str,
                         help='Model checkpoint file path')
     # Data setting
     parser.add_argument('--img_size', default=32, type=int,
