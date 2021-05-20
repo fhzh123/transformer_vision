@@ -65,14 +65,15 @@ class Generator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT �
                 TransformerEncoderLayer(self.embed_dim//16, self_attn_3, dim_feedforward, dropout=self.dropout_ratio ) \
                 for i in range(3)
             ])
+            self_attn_4 = MultiheadAttention(self.embed_dim//64, n_head, dropout=self.dropout_ratio)
             self.forth_stage_encoders = nn.ModuleList([
-                TransformerEncoderLayer(self.embed_dim//64, self_attn_3, dim_feedforward, dropout=self.dropout_ratio ) \
+                TransformerEncoderLayer(self.embed_dim//64, self_attn_4, dim_feedforward, dropout=self.dropout_ratio ) \
                 for i in range(2)
             ])
-            self.pos_embed_1 = PositionalEmbedding(d_model = self.embed_dim, max_len = args.latent_dim)
-            self.pos_embed_2 = PositionalEmbedding(d_model = self.embed_dim//4, max_len = args.latent_dim)
-            self.pos_embed_3 = PositionalEmbedding(d_model = self.embed_dim//16, max_len = args.latent_dim)
-            self.pos_embed_4 = PositionalEmbedding(d_model = self.embed_dim//64, max_len = args.latent_dim)
+            self.pos_embed_1 = PositionalEmbedding(d_model = self.embed_dim, max_len = args.gan_max_len)
+            self.pos_embed_2 = PositionalEmbedding(d_model = self.embed_dim//4, max_len = args.gan_max_len)
+            self.pos_embed_3 = PositionalEmbedding(d_model = self.embed_dim//16, max_len = args.gan_max_len)
+            self.pos_embed_4 = PositionalEmbedding(d_model = self.embed_dim//64, max_len = args.gan_max_len)
 
             self.deconv = nn.Sequential(
             nn.Conv2d(self.embed_dim//64, 3, 1, 1, 0)
@@ -106,6 +107,8 @@ class Generator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT �
 
         for third_stage_encoder in self.third_stage_encoders:
             x = third_stage_encoder(x)
+
+        x, H, W = pixel_upsample(x, H, W)
 
         x = x + self.pos_embed_4(x)
         for forth_stage_encoder in self.forth_stage_encoders:

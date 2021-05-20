@@ -3,7 +3,7 @@ import time
 import argparse
 
 # Import custom modules
-# from train.train_vit import vit_training
+from train.train_vit import vit_training
 #from train.train_cap import captioning_training
 from train.train_transgan import transgan_training
 from utils import str2bool
@@ -12,11 +12,11 @@ def main(args):
     # Time setting
     total_start_time = time.time()
 
-    # if args.model.lower() == 'ViT':
-    #     if args.training:
-    #         vit_training(args)
-    #     if args.testing:
-    #         vit_testing(args)
+    #if args.model.lower() == 'ViT':
+        #if args.training:
+            #vit_training(args)
+        #if args.testing:
+            #vit_testing(args)
 
     #if args.model.lower() == 'Captioning':
         #if args.preprocessing:
@@ -26,7 +26,7 @@ def main(args):
         # if args.testing:
         #     captioning_testing(args)
 
-    #if args.model.lower() == 'TransGAN':
+#if args.model.lower() == 'TransGAN':
          #if args.training:
     transgan_training(args)
     #     if args.testing:
@@ -47,12 +47,12 @@ if __name__=='__main__':
     # Path setting
     parser.add_argument('--preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-    parser.add_argument('--data_path', default='./dataset/celeba', type=str,
+    parser.add_argument('--data_path', default='/HDD/dataset/celeba', type=str,
                         help='Original data path')
-    parser.add_argument('--save_path', default='./', type=str,
+    parser.add_argument('--save_path', default='/HDD/sujincho/model_checkpoints/', type=str,
                         help='Model checkpoint file path')
     # Data setting
-    parser.add_argument('--img_size', default=32, type=int,
+    parser.add_argument('--img_size', default=224, type=int,
                         help='Image resize size; Default is 224')
     parser.add_argument('--vocab_size', default=8000, type=int,
                         help='Caption vocabulary size; Default is 8000')
@@ -98,7 +98,7 @@ if __name__=='__main__':
                         help='Num CPU Workers; Default is 8')
     parser.add_argument('--batch_size', default=16, type=int, 
                         help='Batch size; Default is 16')
-    parser.add_argument('--num_epochs', default=100, type=int, 
+    parser.add_argument('--num_epochs', default=200, type=int, 
                         help='Epoch count; Default is 100=300')
     parser.add_argument('--lr', default=5e-5, type=float,
                         help='Maximum learning rate of warmup scheduler; Default is 5e-5')
@@ -118,7 +118,7 @@ if __name__=='__main__':
     parser.add_argument('--lr_lambda', default=0.95, type=float,
                         help="Lambda learning scheduler's lambda; Default is 0.95")
     # Print frequency
-    parser.add_argument('--print_freq', default=100, type=int, 
+    parser.add_argument('--print_freq', default=25, type=int, 
                         help='Print training process frequency; Default is 100')
   
 
@@ -126,6 +126,9 @@ if __name__=='__main__':
     parser.add_argument('--gen_batch_size', default = 32, type = int)
     parser.add_argument('--dis_batch_size', default=16, type = int)
     parser.add_argument('--latent_dim', default=1024, type = int)
+    parser.add_argument('--exp_name', default='test_transgan', type = str)
+    parser.add_argument('--loss', default='wgangp-eps',type = str)
+    parser.add_argument('--gan_max_len', default=4096, type = int)
 
     args = parser.parse_args()
 
