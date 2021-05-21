@@ -37,7 +37,7 @@ def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, lo
         first_token = logit[:,0,:]
 
         # Loss calculate
-        loss = label_smoothing_loss(first_token, label)
+        loss = label_smoothing_loss(first_token, label, device)
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         clip_grad_norm_(model.parameters(), args.clip_grad_norm)
