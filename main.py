@@ -19,8 +19,6 @@ def main(args):
         #     vit_testing(args)
 
     if args.model == 'Captioning':
-        if args.preprocessing:
-            pass
         if args.training:
             captioning_training(args)
         # if args.testing:
@@ -40,7 +38,6 @@ if __name__=='__main__':
     # Task setting
     parser.add_argument('--model', type=str, choices=['ViT', 'Captioning', 'TransGAN'], required=True,
                         help="Choose model in 'ViT', 'Captioning', 'TransGAN'")
-    parser.add_argument('--preprocessing', action='store_true')
     parser.add_argument('--training', action='store_true')
     parser.add_argument('--testing', action='store_true')
     parser.add_argument('--resume', action='store_true')

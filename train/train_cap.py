@@ -65,7 +65,7 @@ def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, lo
                 img, caption[:, :-1], tgt_mask, non_pad_position=non_pad)
             predicted = predicted.view(-1, predicted.size(-1))
             loss = label_smoothing_loss(
-                predicted, label, args.pad_id)
+                predicted, label, device)
 
         # Back-propagation
         scaler.scale(loss).backward()
@@ -127,8 +127,8 @@ def valid_epoch(args, model, dataloader, device):
 def captioning_training(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if not os.path.exists(args.preprocess_path):
-        os.mkdir(args.preprocess_path)
+    if not os.path.exists(args.captioning_preprocess_path):
+        os.mkdir(args.captioning_preprocess_path)
 
     #===================================#
     #==============Logging==============#
@@ -146,11 +146,11 @@ def captioning_training(args):
     #===================================#
 
     # 1) SentencePiece load
-    if not os.path.isfile(os.path.join(args.preprocess_path, f'spm_train_{args.vocab_size}.model')):
+    if not os.path.isfile(os.path.join(args.captioning_preprocess_path, f'spm_train_{args.vocab_size}.model')):
         preprocessing(args)
 
     spm_model = spm.SentencePieceProcessor()
-    spm_model.Load(os.path.join(args.preprocess_path, f'spm_train_{args.vocab_size}.model'))
+    spm_model.Load(os.path.join(args.captioning_preprocess_path, f'spm_train_{args.vocab_size}.model'))
 
     # 2) Dataloader setting
     write_log(logger, "Load data...")
@@ -172,10 +172,10 @@ def captioning_training(args):
         ])
     }
     dataset_dict = {
-        'train': CustomDataset(data_path=args.data_path, spm_model=spm_model,
+        'train': CustomDataset(data_path=args.captioning_data_path, spm_model=spm_model,
                             transform=transform_dict['train'], phase='train',
                             min_len=args.min_len, max_len=args.max_len),
-        'valid': CustomDataset(data_path=args.data_path, spm_model=spm_model,
+        'valid': CustomDataset(data_path=args.captioning_data_path, spm_model=spm_model,
                             transform=transform_dict['valid'], phase='valid',
                             min_len=args.min_len, max_len=args.max_len)
     }
@@ -214,7 +214,7 @@ def captioning_training(args):
     # 3) Model resume
     start_epoch = 0
     if args.resume:
-        checkpoint = torch.load(os.path.join(args.model_path, 'cap_checkpoint.pth.tar'), map_location='cpu')
+        checkpoint = torch.load(os.path.join(args.captioning_save_path, 'checkpoint_cap.pth.tar'), map_location='cpu')
         start_epoch = checkpoint['epoch'] + 1
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
@@ -248,7 +248,7 @@ def captioning_training(args):
                 'optimizer': optimizer.state_dict(),
                 'scheduler': scheduler.state_dict(),
                 'scaler': scaler.state_dict()
-            }, f'checkpoint.pth.tar')
+            }, os.path.join(args.captioning_save_path, f'checkpoint_cap.pth.tar'))
             best_val_acc = val_acc
             best_epoch = epoch
         else:
