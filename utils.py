@@ -20,6 +20,23 @@ def label_smoothing_loss(pred, gold, device, smoothing_eps=0.1):
     loss = -(one_hot * log_prb).sum(dim=1)
     return loss.mean()
 
+class UnNormalize(object):
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, tensor):
+        """
+        Args:
+            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
+        Returns:
+            Tensor: Normalized image.
+        """
+        for t, m, s in zip(tensor, self.mean, self.std):
+            t.mul_(s).add_(m)
+            # The normalize code -> t.sub_(m).div_(s)
+        return tensor
+        
 def str2bool(v): 
     if isinstance(v, bool): 
         return v 

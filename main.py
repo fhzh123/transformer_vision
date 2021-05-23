@@ -1,11 +1,13 @@
 # Import modules
 import time
 import argparse
-
-# Import custom modules
-from train.train_vit import vit_training
-from train.train_cap import captioning_training
+# Training
+from task.train_vit import vit_training
+from task.train_cap import captioning_training
 # from train_transgan import transgan_training
+# Testing
+from task.test_cap import captioning_testing
+# Utils
 from utils import str2bool
 
 def main(args):
@@ -21,8 +23,8 @@ def main(args):
     if args.model == 'Captioning':
         if args.training:
             captioning_training(args)
-        # if args.testing:
-        #     captioning_testing(args)
+        if args.testing:
+            captioning_testing(args)
 
     # if args.model == 'TransGAN':
     #     if args.training:
@@ -52,7 +54,7 @@ if __name__=='__main__':
                         help='Pre-processed data save path')
     parser.add_argument('--captioning_data_path', default='/HDD/dataset/coco', type=str,
                         help='Original data path')
-    parser.add_argument('--captioning_save_path', default='/HDD/kyohoon/model_checkpoint/', type=str,
+    parser.add_argument('--captioning_save_path', default='/HDD/kyohoon/model_checkpoint/captioning/', type=str,
                         help='Model checkpoint file path')
     parser.add_argument('--transgan_preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
@@ -102,6 +104,17 @@ if __name__=='__main__':
                         help="Share weight between target embedding & last dense layer; Default is False")
     parser.add_argument('--emb_src_trg_weight_sharing', default=False, type=str2bool, 
                         help="Share weight between source and target embedding; Default is False")
+    # Optimizer & LR_Scheduler setting
+    optim_list = ['AdamW', 'Adam', 'SGD', 'Ralamb']
+    scheduler_list = ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda']
+    parser.add_argument('--optimizer', default='AdamW', type=str, choices=optim_list,
+                        help="Choose optimizer setting in 'AdamW', 'Adam', 'SGD'; Default is AdamW")
+    parser.add_argument('--scheduler', default='constant', type=str, choices=scheduler_list,
+                        help="Choose optimizer setting in 'constant', 'warmup', 'reduce'; Default is constant")
+    parser.add_argument('--n_warmup_epochs', default=2, type=float, 
+                        help='Wamrup epochs when using warmup scheduler; Default is 2')
+    parser.add_argument('--lr_lambda', default=0.95, type=float,
+                        help="Lambda learning scheduler's lambda; Default is 0.95")
     # Training setting
     parser.add_argument('--num_workers', default=8, type=int, 
                         help='Num CPU Workers; Default is 8')
@@ -115,17 +128,15 @@ if __name__=='__main__':
                         help="Ralamb's weight decay; Default is 1e-5")
     parser.add_argument('--clip_grad_norm', default=5, type=int, 
                         help='Graddient clipping norm; Default is 5')
-    # Optimizer & LR_Scheduler setting
-    optim_list = ['AdamW', 'Adam', 'SGD', 'Ralamb']
-    scheduler_list = ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda']
-    parser.add_argument('--optimizer', default='AdamW', type=str, choices=optim_list,
-                        help="Choose optimizer setting in 'AdamW', 'Adam', 'SGD'; Default is AdamW")
-    parser.add_argument('--scheduler', default='constant', type=str, choices=scheduler_list,
-                        help="Choose optimizer setting in 'constant', 'warmup', 'reduce'; Default is constant")
-    parser.add_argument('--n_warmup_epochs', default=2, type=float, 
-                        help='Wamrup epochs when using warmup scheduler; Default is 2')
-    parser.add_argument('--lr_lambda', default=0.95, type=float,
-                        help="Lambda learning scheduler's lambda; Default is 0.95")
+    # Testing setting
+    parser.add_argument('--test_batch_size', default=32, type=int, 
+                        help='Test batch size; Default is 32')
+    parser.add_argument('--beam_size', default=5, type=int, 
+                        help='Beam search size; Default is 5')
+    parser.add_argument('--beam_alpha', default=0.7, type=float, 
+                        help='Beam search length normalization; Default is 0.7')
+    parser.add_argument('--repetition_penalty', default=1.3, type=float, 
+                        help='Beam search repetition penalty term; Default is 1.3')
     # Print frequency
     parser.add_argument('--print_freq', default=100, type=int, 
                         help='Print training process frequency; Default is 100')

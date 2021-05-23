@@ -4,6 +4,8 @@ import gc
 import time
 import logging
 import sentencepiece as spm
+import matplotlib.pyplot as plt
+from math import ceil, sqrt
 from collections import defaultdict
 # Import PyTorch
 import torch
@@ -15,8 +17,7 @@ from torch.cuda.amp import GradScaler, autocast
 # Import custom modules
 from model.captioning.dataset import CustomDataset
 from model.captioning.captioning_model import Vision_Transformer
-from utils import TqdmLoggingHandler, write_log
-
+from utils import TqdmLoggingHandler, write_log, UnNormalize
 
 def captioning_testing(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -47,14 +48,14 @@ def captioning_testing(args):
         [
             transforms.Resize((args.img_size, args.img_size)),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ]
     )
     dataset_test = CustomDataset(data_path=args.captioning_data_path, spm_model=spm_model,
-                                 transform=transform_test, phase='test',
-                                 min_len=args.min_len, max_len=args.max_len),
+                                 transform=transform_test, phase='valid',
+                                 min_len=args.min_len, max_len=args.max_len)
     dataloader_test = DataLoader(dataset_test, drop_last=False,
-                                 batch_size=args.batch_size, shuffle=True, pin_memory=True,
+                                 batch_size=args.test_batch_size, shuffle=True, pin_memory=True,
                                  num_workers=args.num_workers)
     gc.enable()
     write_log(logger, f"Total number of testingsets iterations - {len(dataset_test)}, {len(dataloader_test)}")
@@ -64,7 +65,7 @@ def captioning_testing(args):
     #===================================#
 
     # 1) Model initiating
-    write_log(logger, "Instantiating models...")
+    write_log(logger, "Loading models...")
     model = Vision_Transformer(trg_vocab_num=args.vocab_size, d_model=args.d_model, d_embedding=args.d_embedding, 
                                n_head=args.n_head, dim_feedforward=args.dim_feedforward, img_size=args.img_size, 
                                patch_size=args.patch_size, max_len=args.max_len, pad_id=args.pad_id, 
@@ -74,13 +75,11 @@ def captioning_testing(args):
                                emb_src_trg_weight_sharing=args.emb_src_trg_weight_sharing)
 
     # 2) Model load
-    start_epoch = 0
-    if args.resume:
-        checkpoint = torch.load(os.path.join(args.captioning_save_path, 'checkpoint_cap.pth.tar'), map_location='cpu')
-        model.load_state_dict(checkpoint['model'])
-        model = model.eval()
-        model = model.to(device)
-        del checkpoint
+    checkpoint = torch.load(os.path.join(args.captioning_save_path, 'checkpoint_cap.pth.tar'))
+    model.load_state_dict(checkpoint['model'])
+    model = model.eval()
+    model = model.to(device)
+    del checkpoint
 
     #===================================#
     #=========Beam Search Start=========#
@@ -88,14 +87,17 @@ def captioning_testing(args):
 
     predicted_list = list()
     label_list = list()
-    every_batch = torch.arange(0, args.beam_size * args.batch_size, args.beam_size, device=device)
-    tgt_masks = {l: model.generate_square_subsequent_mask(l, device) for l in range(1, args.trg_max_len + 1)}
+    every_batch = torch.arange(0, args.beam_size * args.test_batch_size, args.beam_size, device=device)
+    tgt_masks = {l: model.generate_square_subsequent_mask(l, device) for l in range(1, args.max_len + 1)}
+    start_time = time.time()
 
+    write_log(logger, "Test start!")
     with torch.no_grad():
-        for i, (img, caption) in tqdm(hk_loader):
+        for print_step, (img, caption) in enumerate(dataloader_test):
 
             img = img.to(device)
-            label_list.extend(caption.tolist())
+            caption_list = caption.tolist()
+            label_list.extend(caption_list)
             encoder_out_dict = defaultdict(list)
 
             # Encoding
@@ -116,29 +118,30 @@ def captioning_testing(args):
             if model.parallel:
                 for i in encoder_out_dict:
                     encoder_out_dict[i] = encoder_out_dict[i].view(
-                        -1, args.batch_size, 1, args.d_model).repeat(1, 1, args.beam_size, 1)
+                        -1, args.test_batch_size, 1, args.d_model).repeat(1, 1, args.beam_size, 1)
                     encoder_out_dict[i] = encoder_out_dict[i].view(patch_seq_size, -1, args.d_model)
             else:
                 encoder_out = encoder_out.view(
-                    -1, args.batch_size, 1, args.d_model).repeat(1, 1, args.beam_size, 1)
+                    -1, args.test_batch_size, 1, args.d_model).repeat(1, 1, args.beam_size, 1)
                 encoder_out = encoder_out.view(patch_seq_size, -1, args.d_model)
 
             # Scores save vector & decoding list setting
-            scores_save = torch.zeros(args.beam_size * args.batch_size, 1, device=device)
-            top_k_scores = torch.zeros(args.beam_size * args.batch_size, 1, device=device)
+            scores_save = torch.zeros(args.beam_size * args.test_batch_size, 1, device=device)
+            top_k_scores = torch.zeros(args.beam_size * args.test_batch_size, 1, device=device)
             complete_seqs = dict()
             complete_ind = set()
 
             # Decoding start token setting
-            seqs = torch.tensor([[model.bos_idx]], dtype=torch.long, device=device) 
-            seqs = seqs.repeat(args.beam_size * args.batch_size, 1).contiguous()
+            # seqs: (beam_size * batch_size, 1)
+            seqs = torch.tensor([[args.bos_id]], dtype=torch.long, device=device) 
+            seqs = seqs.repeat(args.beam_size * args.test_batch_size, 1).contiguous()
 
-            for step in range(model.trg_max_len):
+            for step in range(args.max_len):
                 # Decoder setting
                 # tgt_mask: (out_seq)
                 # tgt_key_padding_mask: (batch_size * k, out_seq)
                 tgt_mask = tgt_masks[seqs.size(1)]
-                tgt_key_padding_mask = (seqs == model.pad_idx)
+                tgt_key_padding_mask = (seqs == model.pad_id)
 
                 # Decoding sentence
                 # decoder_out: (out_seq, batch_size * k, d_model)
@@ -170,24 +173,24 @@ def captioning_testing(args):
                     # scores: (batch_size, vocab_num)
                     # top_k_scores: (batch_size, k)
                     scores = scores[::args.beam_size] 
-                    scores[:, model.eos_idx] = float('-inf') # set eos token probability zero in first step
+                    scores[:, args.eos_id] = float('-inf') # set eos token probability zero in first step
                     top_k_scores, top_k_words = scores.topk(args.beam_size, 1, True, True)
                 else:
                     # top_k_scores: (batch_size * k, out_seq)
                     top_k_scores, top_k_words = scores.view(
-                        args.hk_batch_size, -1).topk(args.beam_size, 1, True, True)
+                        args.test_batch_size, -1).topk(args.beam_size, 1, True, True)
 
                 # Previous and Next word extract
                 # seqs: (batch_size * k, out_seq + 1)
-                prev_word_inds = top_k_words // korean_vocab_num
-                next_word_inds = top_k_words % korean_vocab_num
-                top_k_scores = top_k_scores.view(args.hk_batch_size * args.beam_size, -1)
-                top_k_words = top_k_words.view(args.hk_batch_size * args.beam_size, -1)
+                prev_word_inds = top_k_words // args.vocab_size
+                next_word_inds = top_k_words % args.vocab_size
+                top_k_scores = top_k_scores.view(args.test_batch_size * args.beam_size, -1)
+                top_k_words = top_k_words.view(args.test_batch_size * args.beam_size, -1)
                 seqs = seqs[prev_word_inds.view(-1) + every_batch.unsqueeze(1).repeat(1, args.beam_size).view(-1)]
-                seqs = torch.cat([seqs, next_word_inds.view(args.beam_size * args.hk_batch_size, -1)], dim=1) 
+                seqs = torch.cat([seqs, next_word_inds.view(args.beam_size * args.test_batch_size, -1)], dim=1) 
 
                 # Find and Save Complete Sequences Score
-                eos_ind = torch.where(next_word_inds.view(-1) == model.eos_idx)[0]
+                eos_ind = torch.where(next_word_inds.view(-1) == args.eos_id)[0]
                 if len(eos_ind) > 0:
                     eos_ind = eos_ind.tolist()
                     complete_ind_add = set(eos_ind) - complete_ind
@@ -207,17 +210,45 @@ def captioning_testing(args):
 
             # Beam Length Normalization
             length_penalty = torch.tensor(
-                [len(complete_seqs[i]) for i in range(args.hk_batch_size * args.beam_size)], device=device)
+                [len(complete_seqs[i]) for i in range(args.test_batch_size * args.beam_size)], device=device)
             length_penalty = (((length_penalty + args.beam_size) ** args.beam_alpha) / ((args.beam_size + 1) ** args.beam_alpha))
             scores_save = scores_save / length_penalty.unsqueeze(1)
 
             # Predicted and Label processing
-            ind = scores_save.view(args.hk_batch_size, args.beam_size, -1).argmax(dim=1)
+            ind = scores_save.view(args.test_batch_size, args.beam_size, -1).argmax(dim=1)
             ind_expand = ind.view(-1) + every_batch
-            predicted_list.extend([complete_seqs[i] for i in ind_expand.tolist()])
+            predicted_seqs = [complete_seqs[i] for i in ind_expand.tolist()]
+            predicted_list.extend(predicted_seqs)
 
             # Print progress
-            
+            if print_step % args.print_freq == 0:
+                write_log(logger, f'[{print_step}/{len(dataloader_test)}] spend_time: {round((time.time() - start_time) / 60, 3)}min')
+
+            # Results save
+            # 1) txt file
+            write_mode = 'w' if i == 0 else 'a'
+            label_txt = open(os.path.join(args.captioning_save_path, 'label_text.txt'), write_mode)
+            predict_txt = open(os.path.join(args.captioning_save_path, 'predict_text.txt'), write_mode)
+            for i in range(args.test_batch_size):
+                label_txt.write(spm_model.DecodeIds(caption_list[i]) + '\n')
+                predict_txt.write(spm_model.DecodeIds(predicted_seqs[i]) + '\n')
+            label_txt.close()
+            predict_txt.close()
+
+            # 2) Image file
+            if print_step % args.print_freq == 0:
+                un_norm = UnNormalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+                fig = plt.figure(figsize=(64, 64))
+                grid_count = ceil(sqrt(args.test_batch_size))
+                figure_dict = dict()
+
+                for count in range(1, args.test_batch_size + 1):
+                    figure_dict[f'ax{count}'] = fig.add_subplot(grid_count, grid_count, count)
+                    new_img = un_norm(img[count-1]).cpu()
+                    figure_dict[f'ax{count}'].imshow(new_img.permute(1, 2, 0))
+                    xlabel_text = f'''label: {spm_model.DecodeIds(caption_list[count-1])} \n predict: {spm_model.DecodeIds(predicted_seqs[count-1])}'''
+                    figure_dict[f'ax{count}'].set_xlabel(xlabel_text, fontsize = 20)
+                fig.savefig('./full_figure.jpg')
 
     with open(f'./results_beam_{args.beam_size}_{args.beam_alpha}_{args.repetition_penalty}.pkl', 'wb') as f:
         pickle.dump({
@@ -226,34 +257,3 @@ def captioning_testing(args):
             'prediction_decode': [spm_model.DecodeIds(pred) for pred in predicted_list],
             'label_decode': [spm_model.DecodeIds(label) for label in label_list]
         }, f)
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Test machine translation.')
-    parser.add_argument('--preprocessed_data_path',
-        default='/home/nas1_userC/rudvlf0413/joseon_translation/dataset/preprocessed/', type=str, 
-        help='path of data pickle file (train)')
-    parser.add_argument('--checkpoint_path', default='./models/model_12_6_12_ckpt.pt', type=str)
-
-    parser.add_argument('--min_len', default=3, type=int)
-    parser.add_argument('--src_max_len', default=300, type=int, help='max length of the source sentence')
-    parser.add_argument('--trg_max_len', default=350, type=int, help='max length of the target sentence')
-    parser.add_argument('--pad_idx', default=0, type=int)
-    parser.add_argument('--bos_idx', default=1, type=int)
-    parser.add_argument('--eos_idx', default=2, type=int)
-
-    parser.add_argument('--d_model', default=768, type=int)
-    parser.add_argument('--d_embedding', default=256, type=int)
-    parser.add_argument('--n_head', default=12, type=int)
-    parser.add_argument('--dim_feedforward', default=3072, type=int)
-    parser.add_argument('--num_encoder_layer', default=12, type=int)
-    parser.add_argument('--num_mask_layer', default=6, type=int)
-    parser.add_argument('--num_decoder_layer', default=12, type=int)
-    
-    parser.add_argument('--hk_batch_size', default=80, type=int)
-    parser.add_argument('--beam_size', default=3, type=int)
-    parser.add_argument('--beam_alpha', default=0.7, type=float, help='length normalization for beam search')
-    parser.add_argument('--repetition_penalty', default=1.3, type=float, help='repetition penalty')
-    parser.add_argument('--print_freq', default=30, type=int)
-    args = parser.parse_args()
-    main(args)
