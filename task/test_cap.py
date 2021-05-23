@@ -247,7 +247,7 @@ def captioning_testing(args):
                     new_img = un_norm(img[count-1]).cpu()
                     figure_dict[f'ax{count}'].imshow(new_img.permute(1, 2, 0))
                     xlabel_text = f'''label: {spm_model.DecodeIds(caption_list[count-1])} \n predict: {spm_model.DecodeIds(predicted_seqs[count-1])}'''
-                    figure_dict[f'ax{count}'].set_xlabel(xlabel_text, fontsize = 20)
+                    figure_dict[f'ax{count}'].set_xlabel(xlabel_text, fontsize = 30)
                 fig.savefig('./full_figure.jpg')
 
     with open(f'./results_beam_{args.beam_size}_{args.beam_alpha}_{args.repetition_penalty}.pkl', 'wb') as f:
