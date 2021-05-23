@@ -10,6 +10,13 @@ from torch.nn import functional as F
 from torch.cuda.amp.autocast_mode import autocast
 
 class PatchEmbedding(nn.Module):
+    """
+    Embedding which is consisted with under features
+    1. projection : using conv layer to flatten and rearrange
+    2. positions : adding positional information using parameters
+    sum of all these features are output of Embedding
+    then use Factorized embedding parameterization from ALBERT (Z Lan et al. 2019)
+    """
     def __init__(self, in_channels: int = 3, patch_size: int = 16, d_model: int = 768,
                  d_embedding: int = 256, img_size: int = 224):
         super().__init__()
@@ -58,7 +65,12 @@ class PositionalEmbedding(nn.Module):
         return self.pe[:, :x.size(1)]
 
 class TransformerEmbedding(nn.Module):
-
+    """
+    Embedding which is consisted with under features
+    1. TokenEmbedding : normal embedding matrix
+    2. PositionalEmbedding : adding positional information using sin, cos
+    sum of all these features are output of Embedding
+    """
     def __init__(self, vocab_size, d_model, embed_size, pad_idx=0, max_len=512, embedding_dropout=0.1):
         """
         :param vocab_size: total vocab size

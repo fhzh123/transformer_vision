@@ -5,6 +5,14 @@ from torch.cuda.amp.autocast_mode import autocast
 
 class TransformerEncoderLayer(nn.Module):
     def __init__(self, d_model: int, self_attn: nn.Module, dim_feedforward: int = 2048, dropout: float = 0.1):
+        '''
+        TransformerEncoderLayer is made up of self-attn and feedforward network.
+        This standard encoder layer is based on the paper "Attention Is All You Need".
+        Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
+        Lukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. In Advances in
+        Neural Information Processing Systems, pages 6000-6010. Users may modify or implement
+        in a different way during application. (From PyTorch Documents)
+        '''
         super(TransformerEncoderLayer, self).__init__()
         self.self_attn = self_attn
         # Implementation of Feedforward model
@@ -30,6 +38,14 @@ class TransformerEncoderLayer(nn.Module):
 
 class TransformerDecoderLayer(nn.Module):
     def __init__(self, d_model, self_attn, mask_attn, dim_feedforward=2048, dropout=0.1):
+        '''
+        TransformerDecoderLayer is made up of self-attn and feedforward network.
+        This standard encoder layer is based on the paper "Attention Is All You Need".
+        Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
+        Lukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. In Advances in
+        Neural Information Processing Systems, pages 6000-6010. Users may modify or implement
+        in a different way during application. (From PyTorch Documents)
+        '''
         super(TransformerDecoderLayer, self).__init__()
         self.self_attn = self_attn
         self.multihead_attn = mask_attn

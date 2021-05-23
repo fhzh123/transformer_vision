@@ -12,10 +12,10 @@ from torch.nn.utils import clip_grad_norm_
 import torchvision.transforms as transforms
 from torch.cuda.amp import GradScaler
 # Import custom modules
-from model.dataset import CustomDataset
-from model.Vision_Transformer import Vision_Transformer
+from model.classification.dataset import CustomDataset
+from model.classification.classification_model import Vision_Transformer
 from optimizer.utils import shceduler_select, optimizer_select
-from utils import TqdmLoggingHandler, write_log
+from utils import TqdmLoggingHandler, write_log, label_smoothing_loss
 
 def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, logger, device):
 
@@ -37,7 +37,7 @@ def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, lo
         first_token = logit[:,0,:]
 
         # Loss calculate
-        loss = F.cross_entropy(first_token, label)
+        loss = label_smoothing_loss(first_token, label, device)
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         clip_grad_norm_(model.parameters(), args.clip_grad_norm)
@@ -111,23 +111,23 @@ def vit_training(args):
     transform_dict = {
         'train': transforms.Compose(
         [
-            transforms.Resize((224, 224)),
-            transforms.RandomHorizontalFlip(p=0.2),
+            transforms.Resize((args.img_size, args.img_size)),
+            transforms.RandomHorizontalFlip(p=0.3),
             transforms.ColorJitter(brightness=(0.5, 2)),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ]),
         'valid': transforms.Compose(
         [
-            transforms.Resize((224, 224)),
+            transforms.Resize((args.img_size, args.img_size)),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
     }
     dataset_dict = {
-        'train': CustomDataset(data_path=args.data_path, 
+        'train': CustomDataset(data_path=args.vit_data_path, 
                             transform=transform_dict['train'], phase='train'),
-        'valid': CustomDataset(data_path=args.data_path, 
+        'valid': CustomDataset(data_path=args.vit_data_path, 
                             transform=transform_dict['valid'], phase='valid')
     }
     dataloader_dict = {
@@ -149,8 +149,8 @@ def vit_training(args):
     write_log(logger, "Instantiating models...")
     model = Vision_Transformer(n_classes=1000, d_model=args.d_model, d_embedding=args.d_embedding, 
                                n_head=args.n_head, dim_feedforward=args.dim_feedforward,
-                               num_encoder_layer=args.num_encoder_layer, img_size=224, patch_size=args.patch_size,
-                               dropout=args.dropout)
+                               num_encoder_layer=args.num_encoder_layer, img_size=args.img_size, 
+                               patch_size=args.patch_size, dropout=args.dropout)
 
     model = model.train()
     model = model.to(device)
@@ -191,13 +191,17 @@ def vit_training(args):
         write_log(logger, 'Validation Accuracy: %3.2f%%' % val_acc)
         if val_acc > best_val_acc:
             write_log(logger, 'Checkpoint saving...')
+            # Checkpoint path setting
+            if not os.path.exists(args.vit_save_path):
+                os.mkdir(args.vit_save_path)
+            # Save
             torch.save({
                 'epoch': epoch,
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'scheduler': scheduler.state_dict(),
                 'scaler': scaler.state_dict()
-            }, f'checkpoint.pth.tar')
+            }, os.path.join(args.vit_save_path, f'checkpoint.pth.tar'))
             best_val_acc = val_acc
             best_epoch = epoch
         else:
@@ -205,5 +209,5 @@ def vit_training(args):
             write_log(logger, else_log)
 
     # 3)
-    print(f'Best Epoch: {best_epoch}')
-    print(f'Best Accuracy: {round(best_val_acc, 2)}')
+    write_log(logger, f'Best Epoch: {best_epoch}')
+    write_log(logger, f'Best Accuracy: {round(best_val_acc, 2)}')

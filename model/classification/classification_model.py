@@ -18,6 +18,11 @@ class Vision_Transformer(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
+        # Initialization
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.kaiming_uniform_(p) 
+
         # Image embedding part
         self.patch_embedding = PatchEmbedding(in_channels=3, patch_size=patch_size,
             d_model=d_model, d_embedding=d_embedding, img_size=img_size)
