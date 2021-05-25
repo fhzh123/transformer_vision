@@ -91,7 +91,7 @@ def train_epoch(args, epoch, global_steps, gen_net: nn.Module, dis_net: nn.Modul
         #Train Discriminator
 
         real_validity = dis_net(real_img)
-        fake_img = gen_net(z)
+        fake_img = gen_net(z, epoch, device)
         assert fake_img.size() == real_img.size(), f"fake_imgs.size(): {fake_img.size()} real_imgs.size(): {real_img.size()}"
         fake_validity = dis_net(fake_img)
 
@@ -238,8 +238,8 @@ def valid_epoch(args, model, dataloader, device):
 def transgan_training(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if not os.path.exists(args.preprocess_path):
-        os.mkdir(args.preprocess_path)
+#    if not os.path.exists(args.preprocess_path):
+       #os.mkdir(args.preprocess_path)
 
     #===================================#
     #==============Logging==============#
@@ -309,8 +309,10 @@ def transgan_training(args):
     dis_model = dis_model.to(device)
 
     # 2) Optimizer setting
-    gen_optimizer = optimizer_select(gen_model, args)
-    dis_optimizer = optimizer_select(dis_model, args)
+    gen_optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, gen_model.parameters()),
+                                        0.0001, (0, 0.99))
+    dis_optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, dis_model.parameters()),
+                                        0.0001, (0, 0.99))
     #gen_scheduler = shceduler_select(gen_optimizer, dataloader_dict, args)
     #dis_scheduler = shceduler_select(dis_optimizer, dataloader_dict, args)
     gen_scheduler =  LinearLrDecay(gen_optimizer,  0.0001, 0.0, 0, 500000 * 5)

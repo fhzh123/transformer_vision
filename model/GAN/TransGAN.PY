@@ -11,6 +11,7 @@ from ..transformer.embedding import PatchEmbedding
 from ..transformer.layer import TransformerEncoderLayer
 # from .layers import PatchEmbedding
 # from .transformer import TransformerEncoder, ClassificationHead
+from utils import *
 
 def pixel_upsample(x, H, W):
     B, N, C = x.size()
@@ -36,20 +37,35 @@ def get_attn_mask(N, w):
     return mask
 
 class Generator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT 그대로 사용 
-    def __init__(self, args, model_type='CelebA', bottom_width = 8,  
+    def __init__(self, args, model_type='TransGAN-XL', bottom_width = 8,  
                  n_head = 8, dim_feedforward: int = 2048, latent_dim = 1024):
         super(Generator, self).__init__()
-        self.ch = args.d_embedding
+        #self.ch = args.d_embedding =>사용 용도를 잘 모르겠어서 우선 주석처리
         self.dropout_ratio = args.dropout
         self.bottom_width = bottom_width #MLP 통과 이후 => 이미지의 시작 사이즈 
-        self.embed_dim = args.d_embedding
+        self.embed_dim = args.d_embedding = args.gf_dim
         self.is_mask = 0
 
         #MLP for noise
-        self.mlp = nn.Linear(latent_dim, (self.bottom_width**2) * self.embed_dim)
+        self.l1 = nn.Linear(latent_dim, (self.bottom_width**2) * self.embed_dim)
+
+        #learnable positional encoding
+        self.pos_embed_1 = nn.Parameter(torch.zeros(1, self.bottom_width ** 2) * self.embed_dim)
+        self.pos_embed_2 = nn.Parameter(torch.zeros(1, (self.bottom_width * 2)**2, self.embed_dim//4))
+        self.pos_embed_3 = nn.Parameter(torch.zeros(1, (self.bottom_width * 4)**2, self.embed_dim//16))
         
+        self.mask_4 = get_attn_mask((args.img_size)**2, 4)
+        self.mask_5 = get_attn_mask((args.img_size)**2, 5)
+        self.mask_6 = get_attn_mask((args.img_size)**2, 6)
+        self.mask_7 = get_attn_mask((args.img_size)**2, 7)
+        self.mask_8 = get_attn_mask((args.img_size)**2, 8)
+        self.mask_10 = get_attn_mask((args.img_size)**2, 10)
+
+        is_mask = True
+        #dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
+        # what is different with dropout?
         # Transformer Encoder part
-        if model_type == 'CelebA': 
+        if model_type == 'TransGAN-XL': 
             self_attn_1 = MultiheadAttention(self.embed_dim, n_head, dropout=self.dropout_ratio)
             self.first_stage_encoders = nn.ModuleList([
                 TransformerEncoderLayer(self.embed_dim, self_attn_1, dim_feedforward, dropout=self.dropout_ratio ) \
@@ -58,22 +74,13 @@ class Generator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT �
             self_attn_2 = MultiheadAttention(self.embed_dim//4, n_head, dropout=self.dropout_ratio)
             self.second_stage_encoders = nn.ModuleList([
                 TransformerEncoderLayer(self.embed_dim//4, self_attn_2, dim_feedforward, dropout=self.dropout_ratio ) \
-                for i in range(3)
+                for i in range(4)
             ])
             self_attn_3 = MultiheadAttention(self.embed_dim//16, n_head, dropout=self.dropout_ratio)
             self.third_stage_encoders = nn.ModuleList([
                 TransformerEncoderLayer(self.embed_dim//16, self_attn_3, dim_feedforward, dropout=self.dropout_ratio ) \
-                for i in range(3)
-            ])
-            self_attn_4 = MultiheadAttention(self.embed_dim//64, n_head, dropout=self.dropout_ratio)
-            self.forth_stage_encoders = nn.ModuleList([
-                TransformerEncoderLayer(self.embed_dim//64, self_attn_4, dim_feedforward, dropout=self.dropout_ratio ) \
                 for i in range(2)
             ])
-            self.pos_embed_1 = PositionalEmbedding(d_model = self.embed_dim, max_len = args.gan_max_len)
-            self.pos_embed_2 = PositionalEmbedding(d_model = self.embed_dim//4, max_len = args.gan_max_len)
-            self.pos_embed_3 = PositionalEmbedding(d_model = self.embed_dim//16, max_len = args.gan_max_len)
-            self.pos_embed_4 = PositionalEmbedding(d_model = self.embed_dim//64, max_len = args.gan_max_len)
 
             self.deconv = nn.Sequential(
             nn.Conv2d(self.embed_dim//64, 3, 1, 1, 0)
@@ -85,10 +92,23 @@ class Generator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT �
                 nn.Tanh()
                 )
 
-    def forward(self, z):
+    def forward(self, z, epoch, device):
         
-        x = self.mlp(z).view(-1, self.bottom_width ** 2, self.embed_dim)
-        x = x + self.pos_embed_1(x)
+        #define mask for locality-Aware Initialization 
+
+        if epoch < 60:
+            if epoch < 22:
+                mask = self.mask_4
+            elif epoch < 32:
+                mask = self.mask_6
+            elif epoch < 42:
+                mask = self.mask_8
+            else:
+                mask = self.mask_10
+        
+        #mlp for noise 
+        x = self.l1(z).view(-1, self.bottom_width ** 2, self.embed_dim)
+        x = x + self.pos_embed_1(x).to(device)
         H, W= self.bottom_width, self.bottom_width
 
         for first_stage_encoder in self.first_stage_encoders: 
@@ -96,25 +116,21 @@ class Generator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT �
 
         x, H, W = pixel_upsample(x, H, W)
 
-        x = x + self.pos_embed_2(x)
+        x = x + self.pos_embed_2(x).to(device)
 
         for second_stage_encoder in self.second_stage_encoders:
             x = second_stage_encoder(x)
         
         x, H, W = pixel_upsample(x, H, W)
 
-        x = x + self.pos_embed_3(x)
+        x = x + self.pos_embed_3(x).to(device)
 
-        for third_stage_encoder in self.third_stage_encoders:
-            x = third_stage_encoder(x)
+        x = self.third_stage_encoders[0](x)
+        x = self.third_stage_encoders[1](x, src_mask = mask )
 
-        x, H, W = pixel_upsample(x, H, W)
 
-        x = x + self.pos_embed_4(x)
-        for forth_stage_encoder in self.forth_stage_encoders:
-            x = forth_stage_encoder(x)    
-        
-        output = self.deconv(x.permute(0, 2, 1).view(-1, self.embed_dim//64, H, W))
+
+        output = self.deconv(x.permute(0, 2, 1).view(-1, self.embed_dim//16, H, W))
         return output
                    
 
@@ -146,6 +162,9 @@ class Discriminator(nn.Module): #Block은 그대로 반영 => Discriminator는 V
         self.trg_output_linear2 = nn.Linear(d_embedding, n_classes)
 
     def forward(self, src_img: Tensor) -> Tensor:
+
+        if self.args.diff_aug is not "None":
+            x = DiffAugment(src_img, self.args.diff_aug, True)
         # Image embedding
         encoder_out = self.patch_embedding(src_img).transpose(0, 1)
         

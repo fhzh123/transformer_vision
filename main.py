@@ -4,27 +4,21 @@ import argparse
 
 # Import custom modules
 from train.train_vit import vit_training
-<<<<<<< HEAD
 #from train.train_cap import captioning_training
 from train.train_transgan import transgan_training
-=======
-from train.train_cap import captioning_training
-# from train_transgan import transgan_training
->>>>>>> origin/main
 from utils import str2bool
 
 def main(args):
     # Time setting
     total_start_time = time.time()
 
-<<<<<<< HEAD
-    #if args.model.lower() == 'ViT':
-        #if args.training:
-            #vit_training(args)
-        #if args.testing:
-            #vit_testing(args)
+    if args.model == 'ViT':
+        if args.training:
+            vit_training(args)
+        # if args.testing:
+        #     vit_testing(args)
 
-    #if args.model.lower() == 'Captioning':
+    #if args.model == 'Captioning':
         #if args.preprocessing:
             #pass
         #if args.training:
@@ -32,28 +26,9 @@ def main(args):
         # if args.testing:
         #     captioning_testing(args)
 
-#if args.model.lower() == 'TransGAN':
+    if args.model == 'TransGAN':
          #if args.training:
-    transgan_training(args)
-=======
-    if args.model == 'ViT':
-        if args.training:
-            vit_training(args)
-        # if args.testing:
-        #     vit_testing(args)
-
-    if args.model == 'Captioning':
-        if args.preprocessing:
-            pass
-        if args.training:
-            captioning_training(args)
-        # if args.testing:
-        #     captioning_testing(args)
-
-    # if args.model == 'TransGAN':
-    #     if args.training:
-    #         transgan_training(args)
->>>>>>> origin/main
+        transgan_training(args)
     #     if args.testing:
     #         transgan_testing(args)
 
@@ -63,11 +38,7 @@ def main(args):
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Parsing Method')
     # Task setting
-<<<<<<< HEAD
     parser.add_argument('--model', default='TransGAN' ,type=str, choices=['ViT', 'Captioning', 'TransGAN'],
-=======
-    parser.add_argument('--model', type=str, choices=['ViT', 'Captioning', 'TransGAN'], required=True,
->>>>>>> origin/main
                         help="Choose model in 'ViT', 'Captioning', 'TransGAN'")
     parser.add_argument('--preprocessing', action='store_true')
     parser.add_argument('--training', action='store_true')
@@ -88,15 +59,9 @@ if __name__=='__main__':
                         help='Model checkpoint file path')
     parser.add_argument('--transgan_preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-<<<<<<< HEAD
-    parser.add_argument('--data_path', default='/HDD/dataset/celeba', type=str,
+    parser.add_argument('--data_path', default='./dataset/celeba', type=str,
                         help='Original data path')
     parser.add_argument('--save_path', default='/HDD/sujincho/model_checkpoints/', type=str,
-=======
-    parser.add_argument('--transgan_data_path', default='/HDD/dataset/coco', type=str,
-                        help='Original data path')
-    parser.add_argument('--transgan_save_path', default='/HDD/kyohoon/model_checkpoint/', type=str,
->>>>>>> origin/main
                         help='Model checkpoint file path')
     # Data setting
     parser.add_argument('--img_size', default=256, type=int,
@@ -176,6 +141,8 @@ if __name__=='__main__':
     parser.add_argument('--exp_name', default='test_transgan', type = str)
     parser.add_argument('--loss', default='wgangp-eps',type = str)
     parser.add_argument('--gan_max_len', default=4096, type = int)
+    parser.add_argument('--gf_dim', default = 384, type = int)
+    parser.add_argument('--diff_aug', type=str, default="None", help = 'differentiable augmentation type')
 
     args = parser.parse_args()
 
