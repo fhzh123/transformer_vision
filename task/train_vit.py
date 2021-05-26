@@ -14,6 +14,7 @@ from torch.cuda.amp import GradScaler
 # Import custom modules
 from model.classification.dataset import CustomDataset
 from model.classification.classification_model import Vision_Transformer
+from model.classification.vit_official import ViT
 from optimizer.utils import shceduler_select, optimizer_select
 from utils import TqdmLoggingHandler, write_log, label_smoothing_loss
 
@@ -35,6 +36,7 @@ def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, lo
         # Model
         logit = model(img)
         first_token = logit[:,0,:]
+        # first_token = logit
 
         # Loss calculate
         loss = label_smoothing_loss(first_token, label, device)
@@ -76,6 +78,7 @@ def valid_epoch(args, model, dataloader, device):
             # Model
             logit = model(img)
             first_token = logit[:,0,:]
+            # first_token = logit
 
             # Loss calculate
             loss = F.cross_entropy(first_token, label)
@@ -124,11 +127,25 @@ def vit_training(args):
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
     }
+    # dataset_dict = {
+    #     'train': CustomDataset(data_path=args.vit_data_path, 
+    #                         transform=transform_dict['train'], phase='train'),
+    #     'valid': CustomDataset(data_path=args.vit_data_path, 
+    #                         transform=transform_dict['valid'], phase='valid')
+    # }
+    # dataloader_dict = {
+    #     'train': DataLoader(dataset_dict['train'], drop_last=True,
+    #                         batch_size=args.batch_size, shuffle=True, pin_memory=True,
+    #                         num_workers=args.num_workers),
+    #     'valid': DataLoader(dataset_dict['valid'], drop_last=False,
+    #                         batch_size=args.batch_size, shuffle=False, pin_memory=True,
+    #                         num_workers=args.num_workers)
+    # }
     dataset_dict = {
-        'train': CustomDataset(data_path=args.vit_data_path, 
-                            transform=transform_dict['train'], phase='train'),
-        'valid': CustomDataset(data_path=args.vit_data_path, 
-                            transform=transform_dict['valid'], phase='valid')
+        'train': torchvision.datasets.CIFAR10(root='/HDD/dataset', train=True,
+                                              download=True, transform=transform_dict['train']),
+        'valid': torchvision.datasets.CIFAR10(root='/HDD/dataset', train=False,
+                                              download=True, transform=transform_dict['valid'])
     }
     dataloader_dict = {
         'train': DataLoader(dataset_dict['train'], drop_last=True,
@@ -138,6 +155,7 @@ def vit_training(args):
                             batch_size=args.batch_size, shuffle=False, pin_memory=True,
                             num_workers=args.num_workers)
     }
+
     gc.enable()
     write_log(logger, f"Total number of trainingsets  iterations - {len(dataset_dict['train'])}, {len(dataloader_dict['train'])}")
 
@@ -150,7 +168,19 @@ def vit_training(args):
     model = Vision_Transformer(n_classes=1000, d_model=args.d_model, d_embedding=args.d_embedding, 
                                n_head=args.n_head, dim_feedforward=args.dim_feedforward,
                                num_encoder_layer=args.num_encoder_layer, img_size=args.img_size, 
-                               patch_size=args.patch_size, dropout=args.dropout)
+                               patch_size=args.patch_size, dropout=args.dropout,
+                               triple_patch=args.triple_patch, device=device)
+    # model = ViT(
+    #     image_size = args.img_size,
+    #     patch_size = 32,
+    #     num_classes = 1000,
+    #     dim = 1024,
+    #     depth = 6,
+    #     heads = 16,
+    #     mlp_dim = 2048,
+    #     dropout = 0.1,
+    #     emb_dropout = 0.1
+    # )
 
     model = model.train()
     model = model.to(device)

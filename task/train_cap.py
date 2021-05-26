@@ -201,8 +201,7 @@ def captioning_training(args):
                                patch_size=args.patch_size, max_len=args.max_len, pad_id=args.pad_id, 
                                num_encoder_layer=args.num_encoder_layer, num_decoder_layer=args.num_decoder_layer,
                                dropout=args.dropout, embedding_dropout=args.embedding_dropout, parallel=args.parallel,
-                               trg_emb_prj_weight_sharing=args.trg_emb_prj_weight_sharing,
-                               emb_src_trg_weight_sharing=args.emb_src_trg_weight_sharing)
+                               triple_patch=args.triple_patch, device=device)
     model = model.train()
     model = model.to(device)
 

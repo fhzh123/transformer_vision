@@ -14,8 +14,8 @@ class Vision_Transformer(nn.Module):
                  n_head: int = 8, dim_feedforward: int = 2048,
                  img_size: int = 224, patch_size: int = 16, max_len: int = 300,
                  pad_id: int = 0, num_encoder_layer: int = 10, num_decoder_layer: int = 10,
-                 dropout: float = 0.3, embedding_dropout: float = 0.15, parallel: bool = False,
-                 trg_emb_prj_weight_sharing: bool = False, emb_src_trg_weight_sharing: bool = False):
+                 dropout: float = 0.3, embedding_dropout: float = 0.15, 
+                 triple_patch: bool = False, parallel: bool = False, device: torch.device = None):
     
         super(Vision_Transformer, self).__init__()
 
@@ -35,7 +35,7 @@ class Vision_Transformer(nn.Module):
 
         # Image embedding part
         self.patch_embedding = PatchEmbedding(in_channels=3, patch_size=patch_size,
-            d_model=d_model, d_embedding=d_embedding, img_size=img_size)
+            d_model=d_model, img_size=img_size, triple_patch=triple_patch, device=device)
 
         # Text embedding part
         self.text_embedding = TransformerEmbedding(trg_vocab_num, d_model, d_embedding, 
@@ -59,16 +59,6 @@ class Vision_Transformer(nn.Module):
         self.trg_output_linear = nn.Linear(d_model, d_embedding)
         self.trg_output_norm = nn.LayerNorm(d_embedding, eps=1e-12)
         self.trg_output_linear2 = nn.Linear(d_embedding, trg_vocab_num)
-
-        # Transformer technique
-        self.x_logit_scale = 1.
-        if trg_emb_prj_weight_sharing:
-            self.trg_output_linear2.weight = self.TransformerEmbedding.token.weight
-            self.x_logit_scale = (d_model ** -0.5)
-
-        if emb_src_trg_weight_sharing:
-            self.patch_embedding.embedding_linear.weight = \
-                self.trg_output_linear.weight
 
     @autocast()
     def forward(self, src_img: Tensor, trg_text: Tensor, tgt_mask: Tensor, 
@@ -116,7 +106,7 @@ class Vision_Transformer(nn.Module):
             decoder_out = decoder_out[non_pad_position]
         decoder_out = self.trg_output_norm(self.trg_dropout(F.gelu(self.trg_output_linear(decoder_out))))
         decoder_out = self.trg_output_linear2(decoder_out)
-        return decoder_out * self.x_logit_scale
+        return decoder_out
 
     @staticmethod
     def generate_square_subsequent_mask(sz, device):

@@ -18,28 +18,74 @@ class PatchEmbedding(nn.Module):
     then use Factorized embedding parameterization from ALBERT (Z Lan et al. 2019)
     """
     def __init__(self, in_channels: int = 3, patch_size: int = 16, d_model: int = 768,
-                 d_embedding: int = 256, img_size: int = 224):
+                 img_size: int = 224, triple_patch: bool = False, device: torch.device = None):
         super().__init__()
         self.patch_size = patch_size
-        self.projection = nn.Sequential(
-            # using a conv layer instead of a linear one -> performance gains
-            nn.Conv2d(in_channels, d_embedding, kernel_size=patch_size, stride=patch_size),
-            Rearrange('b e (h) (w) -> b (h w) e'),
-        )
-        self.cls_token = nn.Parameter(torch.randn(1,1, d_embedding))
-        self.embedding_linear = nn.Linear(d_embedding, d_model, bias=False)
-        self.positions = nn.Parameter(torch.randn((img_size // patch_size) **2 + 1, d_model))
+        self.triple_patch = triple_patch
+        self.device = device
+        if self.triple_patch:
+            self.projection = {
+                0: nn.Sequential(
+                # using a conv layer instead of a linear one -> performance gains
+                nn.Conv2d(in_channels, d_model, kernel_size=patch_size//2, stride=patch_size//2),
+                Rearrange('b e (h) (w) -> b (h w) e')
+                ).to(device),
+                1: nn.Sequential(
+                # using a conv layer instead of a linear one -> performance gains
+                nn.Conv2d(in_channels, d_model, kernel_size=patch_size, stride=patch_size),
+                Rearrange('b e (h) (w) -> b (h w) e')
+                ).to(device),
+                2: nn.Sequential(
+                # using a conv layer instead of a linear one -> performance gains
+                nn.Conv2d(in_channels, d_model, kernel_size=patch_size*2, stride=patch_size*2),
+                Rearrange('b e (h) (w) -> b (h w) e')
+                ).to(device)
+            }
+            self.segment_embedding = nn.Embedding(3, d_model)
+            self.positions = {
+                0: nn.Parameter(torch.randn((img_size // (patch_size//2)) **2 + 1, d_model)).to(device),
+                1: nn.Parameter(torch.randn((img_size // patch_size) **2 + 1, d_model)).to(device),
+                2: nn.Parameter(torch.randn((img_size // (patch_size*2)) **2 + 1, d_model)).to(device)
+            }
+        else:
+            self.projection = nn.Sequential(
+                # using a conv layer instead of a linear one -> performance gains
+                nn.Conv2d(in_channels, d_model, kernel_size=patch_size, stride=patch_size),
+                Rearrange('b e (h) (w) -> b (h w) e'),
+            )
+            self.positions = nn.Parameter(torch.randn((img_size // patch_size) **2 + 1, d_model))
+        self.cls_token = nn.Parameter(torch.randn(1,1, d_model))
         
     def forward(self, x: Tensor) -> Tensor:
         batch_size = x.size(0)
-        x = self.projection(x)
         cls_tokens = repeat(self.cls_token, '() n e -> b n e', b=batch_size)
-        # prepend the cls token to the input
-        x = torch.cat([cls_tokens, x], dim=1)
-        # Factorized embedding parameterization
-        x = self.embedding_linear(x)
-        # add position embedding
-        x += self.positions
+        if self.triple_patch:
+            # Triple batch projection
+            x0 = self.projection[0](x)
+            x0 = torch.cat([cls_tokens, x0], dim=1)
+            x0 += self.positions[0]
+            x0_seg = repeat(self.segment_embedding(torch.cuda.LongTensor([[0]])), 
+                '() () e -> b n e', b=batch_size, n=x0.size(1))
+            x1 = self.projection[1](x)
+            x1 = torch.cat([cls_tokens, x1], dim=1)
+            x1 += self.positions[1]
+            x1_seg = repeat(self.segment_embedding(torch.cuda.LongTensor([[1]])), 
+                '() () e -> b n e', b=batch_size, n=x1.size(1))
+            x2 = self.projection[2](x)
+            x2 = torch.cat([cls_tokens, x2], dim=1)
+            x2 += self.positions[2]
+            x2_seg = repeat(self.segment_embedding(torch.cuda.LongTensor([[2]])), 
+                '() () e -> b n e', b=batch_size, n=x2.size(1))
+            # concat triple patch tensor
+            x = torch.cat([x0, x1, x2], dim=1)
+            # add segment embedding
+            x += torch.cat([x0_seg, x1_seg, x2_seg], dim=1)
+        else:
+            x = self.projection(x)
+            # prepend the cls token to the input
+            x = torch.cat([cls_tokens, x], dim=1)
+            # add position embedding
+            x += self.positions
 
         return x
 
