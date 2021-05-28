@@ -12,7 +12,7 @@ class Vision_Transformer(nn.Module):
     def __init__(self, n_classes: int, d_model: int = 512, d_embedding: int = 256, 
                  n_head: int = 8, dim_feedforward: int = 2048,
                  num_encoder_layer: int = 10, img_size: int = 224, patch_size: int = 16, 
-                 dropout: float = 0.3, triple_patch: bool = False, device: torch.device = None):
+                 dropout: float = 0.3, triple_patch: bool = False):
     
         super(Vision_Transformer, self).__init__()
 
@@ -25,7 +25,7 @@ class Vision_Transformer(nn.Module):
 
         # Image embedding part
         self.patch_embedding = PatchEmbedding(in_channels=3, patch_size=patch_size,
-            d_model=d_model, img_size=img_size, triple_patch=triple_patch, device=device)
+            d_model=d_model, img_size=img_size, triple_patch=triple_patch)
 
         # Transformer Encoder part
         self_attn = MultiheadAttention(d_model, n_head, dropout=dropout)

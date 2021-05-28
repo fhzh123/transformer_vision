@@ -169,18 +169,7 @@ def vit_training(args):
                                n_head=args.n_head, dim_feedforward=args.dim_feedforward,
                                num_encoder_layer=args.num_encoder_layer, img_size=args.img_size, 
                                patch_size=args.patch_size, dropout=args.dropout,
-                               triple_patch=args.triple_patch, device=device)
-    # model = ViT(
-    #     image_size = args.img_size,
-    #     patch_size = 32,
-    #     num_classes = 1000,
-    #     dim = 1024,
-    #     depth = 6,
-    #     heads = 16,
-    #     mlp_dim = 2048,
-    #     dropout = 0.1,
-    #     emb_dropout = 0.1
-    # )
+                               triple_patch=args.triple_patch)
 
     model = model.train()
     model = model.to(device)

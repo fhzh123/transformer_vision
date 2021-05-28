@@ -15,7 +15,7 @@ class Vision_Transformer(nn.Module):
                  img_size: int = 224, patch_size: int = 16, max_len: int = 300,
                  pad_id: int = 0, num_encoder_layer: int = 10, num_decoder_layer: int = 10,
                  dropout: float = 0.3, embedding_dropout: float = 0.15, 
-                 triple_patch: bool = False, parallel: bool = False, device: torch.device = None):
+                 triple_patch: bool = False, parallel: bool = False):
     
         super(Vision_Transformer, self).__init__()
 
@@ -35,7 +35,7 @@ class Vision_Transformer(nn.Module):
 
         # Image embedding part
         self.patch_embedding = PatchEmbedding(in_channels=3, patch_size=patch_size,
-            d_model=d_model, img_size=img_size, triple_patch=triple_patch, device=device)
+            d_model=d_model, img_size=img_size, triple_patch=triple_patch)
 
         # Text embedding part
         self.text_embedding = TransformerEmbedding(trg_vocab_num, d_model, d_embedding, 

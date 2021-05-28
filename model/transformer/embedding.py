@@ -18,78 +18,69 @@ class PatchEmbedding(nn.Module):
     then use Factorized embedding parameterization from ALBERT (Z Lan et al. 2019)
     """
     def __init__(self, in_channels: int = 3, patch_size: int = 16, d_model: int = 768,
-                 img_size: int = 224, triple_patch: bool = False, device: torch.device = None):
+                 img_size: int = 224, triple_patch: bool = False):
         super().__init__()
         self.patch_size = patch_size
         self.triple_patch = triple_patch
-        self.device = device
+        self.projection = nn.Sequential(
+            # using a conv layer instead of a linear one -> performance gains
+            nn.Conv2d(in_channels, d_model, kernel_size=patch_size, stride=patch_size),
+            Rearrange('b e (h) (w) -> b (h w) e')
+        )
+        self.cls_token = nn.Parameter(torch.randn(1, 1, d_model))
+        self.positions = nn.Parameter(torch.randn((img_size // patch_size)**2 + 1, d_model))
         if self.triple_patch:
-            self.projection = {
-                0: nn.Sequential(
+            self.projection_half = nn.Sequential(
                 # using a conv layer instead of a linear one -> performance gains
                 nn.Conv2d(in_channels, d_model, kernel_size=patch_size//2, stride=patch_size//2),
                 Rearrange('b e (h) (w) -> b (h w) e')
-                ).to(device),
-                1: nn.Sequential(
-                # using a conv layer instead of a linear one -> performance gains
-                nn.Conv2d(in_channels, d_model, kernel_size=patch_size, stride=patch_size),
-                Rearrange('b e (h) (w) -> b (h w) e')
-                ).to(device),
-                2: nn.Sequential(
+            )
+            self.positions_half = nn.Parameter(torch.randn((img_size // (patch_size//2))**2 + 1, d_model))
+            self.projection_double = nn.Sequential(
                 # using a conv layer instead of a linear one -> performance gains
                 nn.Conv2d(in_channels, d_model, kernel_size=patch_size*2, stride=patch_size*2),
                 Rearrange('b e (h) (w) -> b (h w) e')
-                ).to(device)
-            }
-            self.segment_embedding = nn.Embedding(3, d_model)
-            self.positions = {
-                0: nn.Parameter(torch.randn((img_size // (patch_size//2)) **2 + 1, d_model)).to(device),
-                1: nn.Parameter(torch.randn((img_size // patch_size) **2 + 1, d_model)).to(device),
-                2: nn.Parameter(torch.randn((img_size // (patch_size*2)) **2 + 1, d_model)).to(device)
-            }
-        else:
-            self.projection = nn.Sequential(
-                # using a conv layer instead of a linear one -> performance gains
-                nn.Conv2d(in_channels, d_model, kernel_size=patch_size, stride=patch_size),
-                Rearrange('b e (h) (w) -> b (h w) e'),
             )
-            self.positions = nn.Parameter(torch.randn((img_size // patch_size) **2 + 1, d_model))
-        self.cls_token = nn.Parameter(torch.randn(1,1, d_model))
-        
+            self.positions_double = nn.Parameter(torch.randn((img_size // (patch_size*2))**2 + 1, d_model))
+
+            self.seg_token = nn.Parameter(torch.randn(1, 1, d_model))
+            self.seg_original = nn.Parameter(torch.randn(1, d_model))
+            self.seg_half = nn.Parameter(torch.randn(1, d_model))
+            self.seg_double = nn.Parameter(torch.randn(1, d_model))
+
     def forward(self, x: Tensor) -> Tensor:
+        # prepare settings
         batch_size = x.size(0)
         cls_tokens = repeat(self.cls_token, '() n e -> b n e', b=batch_size)
+        # project original patch
+        x_original = self.projection(x)
+        # prepend the cls token to the input
+        x_original = torch.cat([cls_tokens, x_original], dim=1)
+        # add position embedding
+        x_original += self.positions
+        # triple patch mode
         if self.triple_patch:
-            # Triple batch projection
-            x0 = self.projection[0](x)
-            x0 = torch.cat([cls_tokens, x0], dim=1)
-            x0 += self.positions[0]
-            x0_seg = repeat(self.segment_embedding(torch.cuda.LongTensor([[0]])), 
-                '() () e -> b n e', b=batch_size, n=x0.size(1))
-            x1 = self.projection[1](x)
-            x1 = torch.cat([cls_tokens, x1], dim=1)
-            x1 += self.positions[1]
-            x1_seg = repeat(self.segment_embedding(torch.cuda.LongTensor([[1]])), 
-                '() () e -> b n e', b=batch_size, n=x1.size(1))
-            x2 = self.projection[2](x)
-            x2 = torch.cat([cls_tokens, x2], dim=1)
-            x2 += self.positions[2]
-            x2_seg = repeat(self.segment_embedding(torch.cuda.LongTensor([[2]])), 
-                '() () e -> b n e', b=batch_size, n=x2.size(1))
-            # concat triple patch tensor
-            x = torch.cat([x0, x1, x2], dim=1)
-            # add segment embedding
-            x += torch.cat([x0_seg, x1_seg, x2_seg], dim=1)
+            x_original += self.seg_original
+            # prepare segment token
+            seg_tokens = repeat(self.seg_token, '() n e -> b n e', b=batch_size)
+            # project half size patch
+            x_half = self.projection_half(x)
+            x_half = torch.cat([seg_tokens, x_half], dim=1)
+            x_half += self.positions_half 
+            x_half += repeat(self.seg_half, '() e -> n e', n=x_half.size(1))
+            # project double size patch
+            x_double = self.projection_double(x)
+            x_double = torch.cat([seg_tokens, x_double], dim=1)
+            x_double += self.positions_double
+            x_double += repeat(self.seg_double, '() e -> n e', n=x_double.size(1))
+            # concatenate
+            x_out = torch.cat([x_original, x_half, x_double], dim=1)
         else:
-            x = self.projection(x)
-            # prepend the cls token to the input
-            x = torch.cat([cls_tokens, x], dim=1)
-            # add position embedding
-            x += self.positions
+            x_out = x_original
 
-        return x
+        return x_out
 
-class PositionalEmbedding(nn.Module):
+class PositionalEncoding(nn.Module):
 
     def __init__(self, d_model, max_len=512):
         super().__init__()
@@ -114,7 +105,7 @@ class TransformerEmbedding(nn.Module):
     """
     Embedding which is consisted with under features
     1. TokenEmbedding : normal embedding matrix
-    2. PositionalEmbedding : adding positional information using sin, cos
+    2. PositionalEncoding : adding positional information using sin, cos
     sum of all these features are output of Embedding
     """
     def __init__(self, vocab_size, d_model, embed_size, pad_idx=0, max_len=512, embedding_dropout=0.1):
@@ -126,7 +117,7 @@ class TransformerEmbedding(nn.Module):
         super().__init__()
         self.token = nn.Embedding(vocab_size, embed_size, padding_idx=pad_idx)
         self.linear_layer = nn.Linear(embed_size, d_model)
-        self.position = PositionalEmbedding(d_model=d_model, max_len=max_len)
+        self.position = PositionalEncoding(d_model=d_model, max_len=max_len)
         self.embed_norm = nn.LayerNorm(d_model, eps=1e-12)
         self.dropout = nn.Dropout(embedding_dropout)
 
