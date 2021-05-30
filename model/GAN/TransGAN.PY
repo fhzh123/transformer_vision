@@ -1,28 +1,57 @@
-# Import PyTorch
-from torch.nn.modules.pixelshuffle import PixelShuffle
-from model.transformer.embedding import PositionalEmbedding
 import torch
-from torch import nn
+import torch.nn as nn
+import math
+
+from ViT_helper import DropPath, to_2tuple, trunc_normal_
+from utils import * 
+from diff_aug import DiffAugment
 from torch import Tensor
-from torch.nn import functional as F
 from torch.nn.modules.activation import MultiheadAttention
 # Import custom modules
 from ..transformer.embedding import PatchEmbedding
 from ..transformer.layer import TransformerEncoderLayer
-# from .layers import PatchEmbedding
-# from .transformer import TransformerEncoder, ClassificationHead
-from utils import *
 
-def pixel_upsample(x, H, W):
-    B, N, C = x.size()
-    assert N == H*W
-    x = x.permute(0, 2, 1)
-    x = x.view(-1, C, H, W)
-    x = nn.PixelShuffle(2)(x)
-    B, C, H, W = x.size()
-    x = x.view(-1, C, H*W)
-    x = x.permute(0,2,1)
-    return x, H, W
+
+class matmul(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, x1, x2):
+        x = x1@x2
+        return x
+
+def count_matmul(m, x, y):
+    num_mul = x[0].numel() * x[1].size(-1)
+    # m.total_ops += torch.DoubleTensor([int(num_mul)])
+    m.total_ops += torch.DoubleTensor([int(0)])
+    
+
+def gelu(x):
+    """ Original Implementation of the gelu activation function in Google Bert repo when initialy created.
+        For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
+        0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+        Also see https://arxiv.org/abs/1606.08415
+    """
+    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
+
+class Mlp(nn.Module):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=gelu, drop=0.):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = act_layer
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
+
 
 def get_attn_mask(N, w):
     mask = torch.zeros(1, 1, N, N).cuda()
@@ -36,149 +65,324 @@ def get_attn_mask(N, w):
             mask[:, :, i, i-w:i] = 1
     return mask
 
-class Generator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT 그대로 사용 
-    def __init__(self, args, model_type='TransGAN-XL', bottom_width = 8,  
-                 n_head = 8, dim_feedforward: int = 2048, latent_dim = 1024):
-        super(Generator, self).__init__()
-        #self.ch = args.d_embedding =>사용 용도를 잘 모르겠어서 우선 주석처리
-        self.dropout_ratio = args.dropout
-        self.bottom_width = bottom_width #MLP 통과 이후 => 이미지의 시작 사이즈 
-        self.embed_dim = args.d_embedding = args.gf_dim
-        self.is_mask = 0
+class Attention(nn.Module):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., is_mask=0):
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
+        self.scale = qk_scale or head_dim ** -0.5
 
-        #MLP for noise
-        self.l1 = nn.Linear(latent_dim, (self.bottom_width**2) * self.embed_dim)
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+        self.mat = matmul()
+        self.is_mask = is_mask
+        self.remove_mask = False
+        self.mask_4 = get_attn_mask(is_mask, 8)
+        self.mask_5 = get_attn_mask(is_mask, 10)
+        self.mask_6 = get_attn_mask(is_mask, 12)
+        self.mask_7 = get_attn_mask(is_mask, 14)
+        self.mask_8 = get_attn_mask(is_mask, 16)
+        self.mask_10 = get_attn_mask(is_mask, 20)
 
-        #learnable positional encoding
-        self.pos_embed_1 = nn.Parameter(torch.zeros(1, self.bottom_width ** 2) * self.embed_dim)
-        self.pos_embed_2 = nn.Parameter(torch.zeros(1, (self.bottom_width * 2)**2, self.embed_dim//4))
-        self.pos_embed_3 = nn.Parameter(torch.zeros(1, (self.bottom_width * 4)**2, self.embed_dim//16))
-        
-        self.mask_4 = get_attn_mask((args.img_size)**2, 4)
-        self.mask_5 = get_attn_mask((args.img_size)**2, 5)
-        self.mask_6 = get_attn_mask((args.img_size)**2, 6)
-        self.mask_7 = get_attn_mask((args.img_size)**2, 7)
-        self.mask_8 = get_attn_mask((args.img_size)**2, 8)
-        self.mask_10 = get_attn_mask((args.img_size)**2, 10)
+    def forward(self, x, epoch):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
 
-        is_mask = True
-        #dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
-        # what is different with dropout?
-        # Transformer Encoder part
-        if model_type == 'TransGAN-XL': 
-            self_attn_1 = MultiheadAttention(self.embed_dim, n_head, dropout=self.dropout_ratio)
-            self.first_stage_encoders = nn.ModuleList([
-                TransformerEncoderLayer(self.embed_dim, self_attn_1, dim_feedforward, dropout=self.dropout_ratio ) \
-                for i in range(5)
-                ])
-            self_attn_2 = MultiheadAttention(self.embed_dim//4, n_head, dropout=self.dropout_ratio)
-            self.second_stage_encoders = nn.ModuleList([
-                TransformerEncoderLayer(self.embed_dim//4, self_attn_2, dim_feedforward, dropout=self.dropout_ratio ) \
-                for i in range(4)
-            ])
-            self_attn_3 = MultiheadAttention(self.embed_dim//16, n_head, dropout=self.dropout_ratio)
-            self.third_stage_encoders = nn.ModuleList([
-                TransformerEncoderLayer(self.embed_dim//16, self_attn_3, dim_feedforward, dropout=self.dropout_ratio ) \
-                for i in range(2)
-            ])
-
-            self.deconv = nn.Sequential(
-            nn.Conv2d(self.embed_dim//64, 3, 1, 1, 0)
-            )
-
-            self.to_rgb = nn.Sequential(
-                nn.BatchNorm2d(args.latent_dim),
-                nn.ReLU(),
-                nn.Tanh()
-                )
-
-    def forward(self, z, epoch, device):
-        
-        #define mask for locality-Aware Initialization 
-
-        if epoch < 60:
-            if epoch < 22:
-                mask = self.mask_4
-            elif epoch < 32:
-                mask = self.mask_6
-            elif epoch < 42:
-                mask = self.mask_8
+        attn = (self.mat(q, k.transpose(-2, -1))) * self.scale
+        if self.is_mask:
+            if epoch < 20:
+                if epoch < 5:
+                    mask = self.mask_4
+                elif epoch < 10:
+                    mask = self.mask_6
+                elif epoch < 15:
+                    mask = self.mask_8
+                else:
+                    mask = self.mask_10
+                attn = attn.masked_fill(mask.to(attn.get_device()) == 0, -1e9)
             else:
-                mask = self.mask_10
-        
-        #mlp for noise 
+                pass
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = self.mat(attn, v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+
+class Block(nn.Module):
+
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
+                 drop_path=0.,  norm_layer=nn.LayerNorm, is_mask=0):
+        super().__init__()
+        self.norm1 = norm_layer(dim)
+        self.attn = Attention(
+            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop, is_mask=is_mask)
+        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        act_layer=gelu
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+
+    def forward(self, x, epoch):
+        x = x + self.drop_path(self.attn(self.norm1(x), epoch))
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        return x
+
+def pixel_upsample(x, H, W):
+    B, N, C = x.size()
+    assert N == H*W
+    x = x.permute(0, 2, 1)
+    x = x.view(-1, C, H, W)
+    x = nn.PixelShuffle(2)(x)
+    B, C, H, W = x.size()
+    x = x.view(-1, C, H*W)
+    x = x.permute(0,2,1)
+    return x, H, W
+
+class Generator(nn.Module):
+    def __init__(self, args):
+        super(Generator, self).__init__()
+        self.args = args
+        self.bottom_width = args.bottom_width
+        self.embed_dim = embed_dim = args.gf_dim
+        self.l1 = nn.Linear(args.latent_dim, (self.bottom_width ** 2) * self.embed_dim)
+        self.pos_embed_1 = nn.Parameter(torch.zeros(1, self.bottom_width**2, embed_dim))
+        self.pos_embed_2 = nn.Parameter(torch.zeros(1, (self.bottom_width*2)**2, embed_dim//4))
+        self.pos_embed_3 = nn.Parameter(torch.zeros(1, (self.bottom_width*4)**2, embed_dim//16))
+        self.pos_embed_4 = nn.Parameter(torch.zeros(1, (self.bottom_width*8)**2, embed_dim//64))
+        self.pos_embed = [
+            self.pos_embed_1,
+            self.pos_embed_2,
+            self.pos_embed_3,
+            self.pos_embed_4
+        ]
+        is_mask = True
+        drop_path_rate = 0
+        mlp_ratio = 4
+        initial_depth = 5
+        qkv_bias = False
+        qk_scale = None
+        drop_rate = 0
+        attn_drop_rate = 0.
+        norm_layer = nn.LayerNorm
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, initial_depth)]  # stochastic depth decay rule
+        self.blocks = nn.ModuleList([
+                Block(
+                    dim=embed_dim, num_heads=args.n_head, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                    drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer)
+            for i in range(initial_depth)])
+        self.upsample_blocks = nn.ModuleList([
+                 nn.ModuleList([
+                    Block(
+                        dim=embed_dim//4, num_heads=args.n_head, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                        drop=drop_rate, attn_drop=attn_drop_rate, drop_path=0, norm_layer=norm_layer),
+                    Block(
+                        dim=embed_dim//4, num_heads=args.n_head, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                        drop=drop_rate, attn_drop=attn_drop_rate, drop_path=0, norm_layer=norm_layer, is_mask=0),
+                    Block(
+                        dim=embed_dim//4, num_heads=args.n_head, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                        drop=drop_rate, attn_drop=attn_drop_rate, drop_path=0, norm_layer=norm_layer, is_mask=0)
+                 ]
+                ),
+                 nn.ModuleList([
+                    Block(
+                        dim=embed_dim//16, num_heads=args.n_head, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                        drop=drop_rate, attn_drop=attn_drop_rate, drop_path=0, norm_layer=norm_layer),
+                    Block(
+                        dim=embed_dim//16, num_heads=args.n_head, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                        drop=drop_rate, attn_drop=attn_drop_rate, drop_path=0, norm_layer=norm_layer, is_mask=0),
+                    Block(
+                        dim=embed_dim//16, num_heads=args.n_head, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                        drop=drop_rate, attn_drop=attn_drop_rate, drop_path=0, norm_layer=norm_layer, is_mask=0)
+                 ]
+                ),
+                nn.ModuleList([
+                    # Block(
+                    #     dim=embed_dim//16, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                    #     drop=drop_rate, attn_drop=attn_drop_rate, drop_path=0, norm_layer=norm_layer),
+                    Block(
+                        dim=embed_dim//64, num_heads=args.n_head, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                        drop=drop_rate, attn_drop=attn_drop_rate, drop_path=0, norm_layer=norm_layer, is_mask=0),
+                    Block(
+                        dim=embed_dim//64, num_heads=args.n_head, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                        drop=drop_rate, attn_drop=attn_drop_rate, drop_path=0, norm_layer=norm_layer, is_mask=(self.bottom_width*8)**2)
+                 ]
+                )
+                ])
+        for i in range(len(self.pos_embed)):
+            trunc_normal_(self.pos_embed[i], std=.02)
+    
+        self.to_rgb = nn.Sequential(
+            nn.BatchNorm2d(args.gf_dim),
+            nn.ReLU(),
+            # nn.Conv2d(args.gf_dim, 3, 3, 1, 1),
+            nn.Tanh()
+        )
+
+        self.deconv = nn.Sequential(
+            # nn.BatchNorm2d(self.embed_dim),
+            # nn.ReLU(),
+            nn.Conv2d(self.embed_dim//64, 3, 1, 1, 0)
+        )
+
+    def set_arch(self, x, cur_stage):
+        pass
+
+    def forward(self, z, epoch):
         x = self.l1(z).view(-1, self.bottom_width ** 2, self.embed_dim)
-        x = x + self.pos_embed_1(x).to(device)
-        H, W= self.bottom_width, self.bottom_width
-
-        for first_stage_encoder in self.first_stage_encoders: 
-            x = first_stage_encoder(x)
-
-        x, H, W = pixel_upsample(x, H, W)
-
-        x = x + self.pos_embed_2(x).to(device)
-
-        for second_stage_encoder in self.second_stage_encoders:
-            x = second_stage_encoder(x)
-        
-        x, H, W = pixel_upsample(x, H, W)
-
-        x = x + self.pos_embed_3(x).to(device)
-
-        x = self.third_stage_encoders[0](x)
-        x = self.third_stage_encoders[1](x, src_mask = mask )
-
-
-
-        output = self.deconv(x.permute(0, 2, 1).view(-1, self.embed_dim//16, H, W))
+        x = x + self.pos_embed[0].to(x.get_device())
+        B = x.size()
+        H, W = self.bottom_width, self.bottom_width
+        for index, blk in enumerate(self.blocks):
+            x = blk(x, epoch)
+        for index, blk in enumerate(self.upsample_blocks):
+            # x = x.permute(0,2,1)
+            # x = x.view(-1, self.embed_dim, H, W)
+            x, H, W = pixel_upsample(x, H, W)
+            x = x + self.pos_embed[index+1].to(x.get_device())
+            for b in blk:
+                x = b(x, epoch)
+            # _, _, H, W = x.size()
+            # x = x.view(-1, self.embed_dim, H*W)
+            # x = x.permute(0,2,1)
+        output = self.deconv(x.permute(0, 2, 1).view(-1, self.embed_dim//64, H, W))
         return output
-                   
 
-class Discriminator(nn.Module): #Block은 그대로 반영 => Discriminator는 ViT 그대로 사용 
-    def __init__(self, args, n_classes: int = 1, d_model: int = 512, d_embedding: int = 256, 
-                 n_head: int = 8, dim_feedforward: int = 2048,
-                 num_encoder_layer: int = 10, num_decoder_layer: int = 10,
-                 img_size: int = 224, patch_size: int = 16, dropout: float = 0.3):
-         
-        super(Discriminator, self).__init__()
-        d_embedding = d_model = args.d_embedding
-        img_size = args.img_size
 
-        self.dropout = nn.Dropout(dropout)
+class HybridEmbed(nn.Module):
+    """ CNN Feature Map Embedding
+    Extract feature map from CNN, flatten, project to embedding dim.
+    """
+    def __init__(self, backbone, img_size=224, feature_size=None, in_chans=3, embed_dim=768):
+        super().__init__()
+        assert isinstance(backbone, nn.Module)
+        img_size = to_2tuple(img_size)
+        self.img_size = img_size
+        self.backbone = backbone
+        if feature_size is None:
+            with torch.no_grad():
+                # FIXME this is hacky, but most reliable way of determining the exact dim of the output feature
+                # map for all networks, the feature metadata has reliable channel and stride info, but using
+                # stride to calc feature dim requires info about padding of each stage that isn't captured.
+                training = backbone.training
+                if training:
+                    backbone.eval()
+                o = self.backbone(torch.zeros(1, in_chans, img_size[0], img_size[1]))[-1]
+                feature_size = o.shape[-2:]
+                feature_dim = o.shape[1]
+                backbone.train(training)
+        else:
+            feature_size = to_2tuple(feature_size)
+            feature_dim = self.backbone.feature_info.channels()[-1]
+        self.num_patches = feature_size[0] * feature_size[1]
+        self.proj = nn.Linear(feature_dim, embed_dim)
 
-        # Image embedding part
-        self.patch_embedding = PatchEmbedding(in_channels=3, patch_size=patch_size,
-            d_model=d_model, d_embedding=d_embedding, img_size=img_size)
+    def forward(self, x):
+        x = self.backbone(x)[-1]
+        x = x.flatten(2).transpose(1, 2)
+        x = self.proj(x)
+        return x
 
-        # Transformer Encoder part
-        self_attn = MultiheadAttention(d_model, n_head, dropout=dropout)
-        self.encoders = nn.ModuleList([
-            TransformerEncoderLayer(d_model, self_attn, dim_feedforward, dropout=dropout) \
-                for i in range(num_encoder_layer)])
 
-        # Target linear part (Not averaging)
-        self.trg_output_linear = nn.Linear(d_model, d_embedding)
-        self.trg_output_norm = nn.LayerNorm(d_embedding, eps=1e-12)
-        self.trg_output_linear2 = nn.Linear(d_embedding, n_classes)
+class Discriminator(nn.Module):
+    """ Vision Transformer with support for patch or hybrid CNN input stage
+    """
+    def __init__(self, args, img_size=32, patch_size=None, in_chans=3, num_classes=1, embed_dim=None, depth=7,
+                 num_heads=4, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
+                 drop_path_rate=0., hybrid_backbone=None, norm_layer=nn.LayerNorm):
+        super().__init__()
+        self.num_classes = num_classes
+        self.num_features = embed_dim = self.embed_dim = args.df_dim  # num_features for consistency with other models
+        depth = 7
+        self.args = args
+        patch_size = args.patch_size
+        if hybrid_backbone is not None:
+            self.patch_embed = HybridEmbed(
+                hybrid_backbone, img_size=img_size, in_chans=in_chans, embed_dim=embed_dim)
+        else:
+            self.patch_embed = nn.Conv2d(3, embed_dim, kernel_size=patch_size, stride=patch_size, padding=0)
+        num_patches = (args.img_size // patch_size)**2
 
-    def forward(self, src_img: Tensor) -> Tensor:
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        self.pos_drop = nn.Dropout(p=drop_rate)
+        
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
+        self.blocks = nn.ModuleList([
+            Block(
+                dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer)
+            for i in range(depth)])
+        self.norm = norm_layer(embed_dim)
 
+        # NOTE as per official impl, we could have a pre-logits representation dense layer + tanh here
+        #self.repr = nn.Linear(embed_dim, representation_size)
+        #self.repr_act = nn.Tanh()
+
+        # Classifier head
+        self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
+        trunc_normal_(self.pos_embed, std=.02)
+        trunc_normal_(self.cls_token, std=.02)
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+
+    @torch.jit.ignore
+    def no_weight_decay(self):
+        return {'pos_embed', 'cls_token'}
+
+    def get_classifier(self):
+        return self.head
+
+    def reset_classifier(self, num_classes, global_pool=''):
+        self.num_classes = num_classes
+        self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
+    def forward_features(self, x, epoch):
         if self.args.diff_aug is not "None":
-            x = DiffAugment(src_img, self.args.diff_aug, True)
-        # Image embedding
-        encoder_out = self.patch_embedding(src_img).transpose(0, 1)
-        
-        # Transformer Encoder
-        for encoder in self.encoders:
-            encoder_out = encoder(encoder_out)
+            x = DiffAugment(x, self.args.diff_aug, True)
+        B = x.shape[0]
+        x = self.patch_embed(x).flatten(2).permute(0,2,1)
 
-        # Target linear
-        encoder_out = encoder_out.transpose(0, 1)
-        encoder_out = self.trg_output_norm(self.dropout(F.gelu(self.trg_output_linear(encoder_out))))
-        encoder_out = self.trg_output_linear2(encoder_out)
-        return encoder_out
-        
-        
+        cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        x = torch.cat((cls_tokens, x), dim=1)
+        x = x + self.pos_embed
+        x = self.pos_drop(x)
+        for blk in self.blocks:
+            x = blk(x, epoch)
+
+        x = self.norm(x)
+        return x[:,0]
+
+    def forward(self, x, epoch):
+        x = self.forward_features(x, epoch)
+        x = self.head(x)
+        return x
+
+
+def _conv_filter(state_dict, patch_size=16):
+    """ convert patch embedding weight from manual patchify + linear proj to conv"""
+    out_dict = {}
+    for k, v in state_dict.items():
+        if 'patch_embed.proj.weight' in k:
+            v = v.reshape((v.shape[0], 3, patch_size, patch_size))
+        out_dict[k] = v
+    return out_dict
 
 class LinearLrDecay(object):
     def __init__(self, optimizer, start_lr, end_lr, decay_start_step, decay_end_step):

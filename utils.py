@@ -8,12 +8,12 @@ import argparse
 import torch
 import torch.nn.functional as F
 
-def label_smoothing_loss(pred, gold, device, smoothing_eps=0.1):
+def label_smoothing_loss(pred, gold, smoothing_eps=0.1):
     ''' Calculate cross entropy loss, apply label smoothing if needed. '''
     gold = gold.contiguous().view(-1)
     n_class = pred.size(1)
 
-    one_hot = torch.zeros_like(pred).scatter(1, gold.view(-1, 1), 1).to(device)
+    one_hot = torch.zeros_like(pred).scatter(1, gold.view(-1, 1), 1)
     one_hot = one_hot * (1 - smoothing_eps) + (1 - one_hot) * smoothing_eps / (n_class - 1)
     log_prb = F.log_softmax(pred, dim=1)
 
@@ -56,17 +56,3 @@ class TqdmLoggingHandler(logging.Handler):
 def write_log(logger, message):
     if logger:
         logger.info(message)
-
-def DiffAugment(x, policy='', channels_first=True):
-    if policy:
-        if not channels_first:
-            x = x.permute(0, 3, 1, 2)
-        for p in policy.split(','):
-            for f in AUGMENT_FNS[p]:
-                x = f(x)
-        if not channels_first:
-            x = x.permute(0, 2, 3, 1)
-        x = x.contiguous()
-    return x
-
-    
