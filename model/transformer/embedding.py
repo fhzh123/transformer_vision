@@ -52,29 +52,38 @@ class PatchEmbedding(nn.Module):
         # prepare settings
         batch_size = x.size(0)
         cls_tokens = repeat(self.cls_token, '() n e -> b n e', b=batch_size)
+
         # project original patch
         x_original = self.projection(x)
+
         # prepend the cls token to the input
         x_original = torch.cat([cls_tokens, x_original], dim=1)
+
         # add position embedding
         x_original += self.positions
+
         # triple patch mode
         if self.triple_patch:
             x_original += self.seg_original
+
             # prepare segment token
             seg_tokens = repeat(self.seg_token, '() n e -> b n e', b=batch_size)
+
             # project half size patch
             x_half = self.projection_half(x)
             x_half = torch.cat([seg_tokens, x_half], dim=1)
             x_half += self.positions_half 
             x_half += repeat(self.seg_half, '() e -> n e', n=x_half.size(1))
+
             # project double size patch
             x_double = self.projection_double(x)
             x_double = torch.cat([seg_tokens, x_double], dim=1)
             x_double += self.positions_double
             x_double += repeat(self.seg_double, '() e -> n e', n=x_double.size(1))
+            
             # concatenate
             x_out = torch.cat([x_original, x_half, x_double], dim=1)
+
         else:
             x_out = x_original
 
