@@ -5,6 +5,7 @@ from torch import Tensor
 from torch.nn import functional as F
 from torch.cuda.amp.autocast_mode import autocast
 from torch.nn.modules.activation import MultiheadAttention
+from tqdm import tqdm
 # Import custom modules
 from ..transformer.embedding import PatchEmbedding, TransformerEmbedding
 from ..transformer.layer import TransformerEncoderLayer, TransformerDecoderLayer
@@ -37,6 +38,8 @@ class Vision_Transformer(nn.Module):
         self.patch_embedding = PatchEmbedding(in_channels=3, patch_size=patch_size,
             d_model=d_model, img_size=img_size, triple_patch=triple_patch)
 
+        ########## 
+
         # Text embedding part
         self.text_embedding = TransformerEmbedding(trg_vocab_num, d_model, d_embedding, 
             pad_idx=self.pad_id, max_len=max_len, embedding_dropout=embedding_dropout)
@@ -60,15 +63,56 @@ class Vision_Transformer(nn.Module):
         self.trg_output_norm = nn.LayerNorm(d_embedding, eps=1e-12)
         self.trg_output_linear2 = nn.Linear(d_embedding, trg_vocab_num)
 
+        ################################################################################
+        from ..detection.models.backbone import Backbone, Joiner
+        from ..detection.models.position_encoding import PositionEmbeddingSine
+
+        position_embedding = PositionEmbeddingSine(d_model//2, normalize=True)
+        train_backbone = True
+        return_interm_layers = False
+        backbone = Backbone('resnet50', train_backbone, return_interm_layers, False)
+        model = Joiner(backbone, position_embedding)
+        model.num_channels = backbone.num_channels
+        
+        self.backbone = model
+        self.input_proj = nn.Conv2d(backbone.num_channels, d_model, kernel_size=1)
+        ################################################################################
+
     @autocast()
     def forward(self, src_img: Tensor, trg_text: Tensor, tgt_mask: Tensor, 
                 non_pad_position: Tensor = None) -> Tensor:
         # Image embedding
         encoder_out = self.patch_embedding(src_img).transpose(0, 1)
+        # print(f"Source Image shape : {src_img.shape}")
+        # print(f"Patch shape : {encoder_out.shape}")
+
+        ################################################################################
+
+        from ..detection.util.misc import nested_tensor_from_tensor_list
+
+        if isinstance(src_img, (list, torch.Tensor)):
+            samples = nested_tensor_from_tensor_list(src_img)
+
+        features, pos = self.backbone(samples)
+        src, mask = features[-1].decompose()
+        src = self.input_proj(src)
+        pos = pos[-1]
+
+        # print(src.shape, pos.shape)
+
+        src = src.flatten(2).permute(2, 0, 1)
+        pos = pos.flatten(2).permute(2, 0, 1)
+
+        # print(src.shape, pos.shape)
+
+        encoder_out = src + pos
+
+        ################################################################################
 
         # Text embedding
         tgt_key_padding_mask = (trg_text == self.pad_id)
         decoder_out = self.text_embedding(trg_text).transpose(0, 1)
+        # print(f"Decoder output shape : {decoder_out.shape}")
 
         # Parallel mode
         if self.parallel:
