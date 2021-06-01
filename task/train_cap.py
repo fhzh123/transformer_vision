@@ -4,6 +4,8 @@ import gc
 import time
 import logging
 import sentencepiece as spm
+import json
+from tqdm import tqdm
 # Import PyTorch
 import torch
 import torchvision
@@ -19,7 +21,7 @@ from optimizer.utils import shceduler_select, optimizer_select
 from utils import label_smoothing_loss, TqdmLoggingHandler, write_log
 
 def preprocessing(args):
-    with open(os.path.join(args.data_path, 'annotations/captions_train2017.json'), 'r') as f:
+    with open(os.path.join(args.captioning_data_path, 'annotations/captions_train2017.json'), 'r') as f:
         data_ = json.load(f)['annotations']
 
     #===================================#
@@ -27,15 +29,15 @@ def preprocessing(args):
     #===================================#
 
     # 1) Make Korean text to train vocab
-    with open(f'{args.preprocess_path}/train_text.txt', 'w') as f:
+    with open(f'{args.captioning_preprocess_path}/train_text.txt', 'w') as f:
         for c in data_:
             f.write(f'{c["caption"]}\n')
 
     # 2) SentencePiece model training
     spm.SentencePieceProcessor()
     spm.SentencePieceTrainer.Train(
-        f'--input={args.preprocess_path}/train_text.txt --model_prefix={args.preprocess_path}/spm_train_{args.vocab_size} '
-        f'--model_type={args.sentencepiece_model} --character_coverage=0.9995 --vocab_size={args.vocab_size} '
+        f'--input={args.captioning_preprocess_path}/train_text.txt --model_prefix={args.captioning_preprocess_path}/spm_train_{args.vocab_size} '
+        f'--model_type=unigram --character_coverage=0.9995 --vocab_size={args.vocab_size} '
         f'--pad_id={args.pad_id} --unk_id={args.unk_id} --bos_id={args.bos_id} --eos_id={args.eos_id} '
         f'--split_by_whitespace=true')
 
@@ -47,7 +49,6 @@ def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, lo
     tgt_mask = model.generate_square_subsequent_mask(args.max_len - 1, device)
 
     for i, (img, caption) in enumerate(dataloader):
-
         # Optimizer setting
         optimizer.zero_grad()
 
@@ -183,6 +184,7 @@ def captioning_training(args):
         'train': DataLoader(dataset_dict['train'], drop_last=True,
                             batch_size=args.batch_size, shuffle=True, pin_memory=True,
                             num_workers=args.num_workers),
+                            # num_workers=0),
         'valid': DataLoader(dataset_dict['valid'], drop_last=False,
                             batch_size=args.batch_size, shuffle=False, pin_memory=True,
                             num_workers=args.num_workers)
@@ -202,7 +204,7 @@ def captioning_training(args):
                                num_encoder_layer=args.num_encoder_layer, num_decoder_layer=args.num_decoder_layer,
                                dropout=args.dropout, embedding_dropout=args.embedding_dropout, parallel=args.parallel,
                                triple_patch=args.triple_patch)
-    model = model.train()
+    #model = model.train()
     model = model.to(device)
 
     # 2) Optimizer setting
@@ -231,7 +233,6 @@ def captioning_training(args):
     write_log(logger, 'Train start!')
 
     for epoch in range(start_epoch, args.num_epochs):
-
         train_epoch(args, epoch, model, dataloader_dict['train'], optimizer, scheduler, scaler, logger, device)
         val_loss, val_acc = valid_epoch(args, model, dataloader_dict['valid'], device)
 
