@@ -159,8 +159,6 @@ def captioning_training(args):
         'train': transforms.Compose(
         [
             transforms.Resize((args.img_size, args.img_size)),
-            transforms.RandomHorizontalFlip(p=0.2),
-            transforms.ColorJitter(brightness=(0.5, 2)),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ]),

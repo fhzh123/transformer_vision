@@ -4,7 +4,7 @@ import argparse
 # Training
 from task.train_vit import vit_training
 from task.train_cap import captioning_training
-from task.train_transgan import transgan_training
+# from task.train_gan import transgan_training
 # Testing
 from task.test_cap import captioning_testing
 # Utils
@@ -121,6 +121,8 @@ if __name__=='__main__':
     parser.add_argument('--lr_lambda', default=0.95, type=float,
                         help="Lambda learning scheduler's lambda; Default is 0.95")
     # Training setting
+    parser.add_argument('--num_epochs', default=10, type=int, 
+                        help='Training epochs; Default is 10')
     parser.add_argument('--num_workers', default=8, type=int, 
                         help='Num CPU Workers; Default is 8')
     parser.add_argument('--batch_size', default=16, type=int, 

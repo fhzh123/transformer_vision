@@ -182,25 +182,31 @@ def transgan_training(args):
         'train': transforms.Compose(
         [
             transforms.Resize((args.img_size, args.img_size)),
-            transforms.RandomHorizontalFlip(),
+            transforms.RandomHorizontalFlip(p=0.2),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ]),
         'valid': transforms.Compose(
         [
             transforms.Resize((args.img_size, args.img_size)),
-            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
     }
     dataset_dict = {
-        'train': CustomDataset(data_path=args.data_path,
-                            transform=transform_dict['train'])
+        'train': CustomDataset(data_path=args.captioning_data_path, spm_model=spm_model,
+                            transform=transform_dict['train'], phase='train',
+                            min_len=args.min_len, max_len=args.max_len),
+        'valid': CustomDataset(data_path=args.captioning_data_path, spm_model=spm_model,
+                            transform=transform_dict['valid'], phase='valid',
+                            min_len=args.min_len, max_len=args.max_len)
     }
     dataloader_dict = {
         'train': DataLoader(dataset_dict['train'], drop_last=True,
-                            batch_size=args.dis_batch_size, shuffle=True, pin_memory=True,
+                            batch_size=args.batch_size, shuffle=True, pin_memory=True,
+                            num_workers=args.num_workers),
+        'valid': DataLoader(dataset_dict['valid'], drop_last=False,
+                            batch_size=args.batch_size, shuffle=False, pin_memory=True,
                             num_workers=args.num_workers)
     }
     gc.enable()
