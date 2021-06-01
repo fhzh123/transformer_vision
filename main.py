@@ -59,11 +59,8 @@ if __name__=='__main__':
                         help='Model checkpoint file path')
     parser.add_argument('--transgan_preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-<<<<<<< HEAD
     parser.add_argument('--data_path', default='/HDD/dataset/celeba', type=str,
-=======
-    parser.add_argument('--data_path', default='./celeba', type=str,
->>>>>>> d0cac9a780faa63ee64f523d60bc56736e556bc4
+
                         help='Original data path')
     parser.add_argument('--save_path', default='/model_checkpoints/', type=str,
                         help='Model checkpoint file path')
@@ -149,12 +146,11 @@ if __name__=='__main__':
     parser.add_argument('--df_dim', default = 384, type = int)
     parser.add_argument('--diff_aug', type=str, default="translation,cutout,color", help = 'differentiable augmentation type')
     parser.add_argument('--bottom_width', type=int, default=8)
-<<<<<<< HEAD
+
     parser.add_argument('--init_type', type=str, default='normal',choices=['normal', 'orth', 'xavier_uniform', 'false'],help='The init type')
     parser.add_argument('--lr_decay',action='store_true',help='learning rate decay or not')
-=======
 
->>>>>>> d0cac9a780faa63ee64f523d60bc56736e556bc4
+
     args = parser.parse_args()
 
     main(args)

@@ -152,8 +152,7 @@ def train_epoch(args, epoch, global_steps, gen_net: nn.Module, dis_net: nn.Modul
             'gen_model': gen_model.state_dict(),
             'dis_model': dis_model.state_dict(),
             'gen_optimizer': gen_optimizer.state_dict(),
-            'dis_optimizer': dis_optimizer.state_dict(),
-            'scaler': scaler.state_dict()
+            'dis_optimizer': dis_optimizer.state_dict()
         }, os.path.join(args.save_path, 'gan_checkpoint.pth.tar'))
 
         # writer.add_image(f'sa
