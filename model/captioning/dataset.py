@@ -47,7 +47,7 @@ class CustomDataset(Dataset):
 
             self.data = list()
 
-            with open(os.path.join(data_path, 'annotations/captions_valid2017.json'), 'r') as f:
+            with open(os.path.join(data_path, 'annotations/captions_val2017.json'), 'r') as f:
                 c_data = json.load(f)['annotations']
 
             for c in c_data:
