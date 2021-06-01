@@ -59,12 +59,12 @@ if __name__=='__main__':
                         help='Model checkpoint file path')
     parser.add_argument('--transgan_preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-    parser.add_argument('--data_path', default='./dataset/celeba', type=str,
+    parser.add_argument('--data_path', default='/HDD/dataset/celeba', type=str,
                         help='Original data path')
-    parser.add_argument('--save_path', default='/HDD/sujincho/model_checkpoints/', type=str,
+    parser.add_argument('--save_path', default='/model_checkpoints/', type=str,
                         help='Model checkpoint file path')
     # Data setting
-    parser.add_argument('--img_size', default=256, type=int,
+    parser.add_argument('--img_size', default=64, type=int,
                         help='Image resize size; Default is 256')
     parser.add_argument('--vocab_size', default=8000, type=int,
                         help='Caption vocabulary size; Default is 8000')
@@ -89,7 +89,7 @@ if __name__=='__main__':
                         help='Transformer model dimension; Default is 768')
     parser.add_argument('--d_embedding', default=256, type=int, 
                         help='Transformer embedding word token dimension; Default is 256')
-    parser.add_argument('--n_head', default=12, type=int, 
+    parser.add_argument('--n_head', default=8, type=int, 
                         help="Multihead Attention's head count; Default is 12")
     parser.add_argument('--dim_feedforward', default=3120, type=int, 
                         help="Feedforward network's dimension; Default is 3120")
@@ -135,15 +135,18 @@ if __name__=='__main__':
   
 
     # GAN settings
-    parser.add_argument('--gen_batch_size', default = 32, type = int)
-    parser.add_argument('--dis_batch_size', default=16, type = int)
+    parser.add_argument('--gen_batch_size', default = 4, type = int)
+    parser.add_argument('--dis_batch_size', default=2, type = int)
     parser.add_argument('--latent_dim', default=1024, type = int)
     parser.add_argument('--exp_name', default='test_transgan', type = str)
-    parser.add_argument('--loss', default='wgangp-eps',type = str)
+    parser.add_argument('--loss', default='wgangp-eps',type = str) #wgangp-eps
     parser.add_argument('--gan_max_len', default=4096, type = int)
-    parser.add_argument('--gf_dim', default = 384, type = int)
-    parser.add_argument('--diff_aug', type=str, default="None", help = 'differentiable augmentation type')
-
+    parser.add_argument('--gf_dim', default = 1024, type = int)
+    parser.add_argument('--df_dim', default = 384, type = int)
+    parser.add_argument('--diff_aug', type=str, default="translation,cutout,color", help = 'differentiable augmentation type')
+    parser.add_argument('--bottom_width', type=int, default=8)
+    parser.add_argument('--init_type', type=str, default='normal',choices=['normal', 'orth', 'xavier_uniform', 'false'],help='The init type')
+    parser.add_argument('--lr_decay',action='store_true',help='learning rate decay or not')
     args = parser.parse_args()
 
     main(args)
