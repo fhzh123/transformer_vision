@@ -6,7 +6,6 @@ import logging
 import sentencepiece as spm
 # Import PyTorch
 import torch
-import torchvision
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_norm_

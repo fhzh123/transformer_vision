@@ -7,158 +7,129 @@ import numpy as np
 from tqdm import tqdm
 # Import PyTorch
 import torch
-import torchvision
 import torch.nn as nn
-from torch.nn import functional as F
+import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_norm_
 from torchvision.utils import make_grid, save_image
-import torchvision.transforms as transforms
 from torch.cuda.amp import GradScaler, autocast
 # Import custom modules
-from models.GAN.dataset import CustomDataset
-from model.GAN.TransGAN import Discriminator, Generator# LinearLrDecay
+from model.GAN.dataset import CustomDataset
+from model.GAN.TransGAN import Discriminator, Generator
+from model.GAN.utils import compute_gradient_penalty
 from optimizer.utils import shceduler_select, optimizer_select
-from utils import label_smoothing_loss, TqdmLoggingHandler, write_log
-from torch.autograd import Variable
-from copy import deepcopy
+from utils import TqdmLoggingHandler, write_log
 
-def compute_gradient_penalty(D, real_samples, fake_samples, phi):
-    """Calculates the gradient penalty loss for WGAN GP"""
-    # Random weight term for interpolation between real and fake samples
-    alpha = torch.Tensor(np.random.random((real_samples.size(0), 1, 1, 1))).to(real_samples.get_device())
-    # Get random interpolation between real and fake samples
-    interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
-    d_interpolates = D(interpolates)
-    fake = torch.ones([real_samples.shape[0], 1], requires_grad=False).to(real_samples.get_device())
-    # Get gradient w.r.t. interpolates
-    gradients = torch.autograd.grad(
-        outputs=d_interpolates,
-        inputs=interpolates,
-        grad_outputs=fake,
-        create_graph=True,
-        retain_graph=True,
-        only_inputs=True,
-    )[0]
-    gradients = gradients.view(gradients.size(0), -1)
-    gradient_penalty = ((gradients.norm(2, dim=1) - phi) ** 2).mean()
-    return gradient_penalty
+def train_epoch(args, epoch, model_dict, dataloader, optimizer_dict, scheduler_dict, scaler_dict, logger, device):
 
-def train_epoch(args, epoch, gen_net: nn.Module, dis_net: nn.Module, dataloader,   gen_optimizer, dis_optimizer, device, schedulers =None):
-    gen_step = 0
     # Train setting
     start_time_e = time.time()
-    gen_model = gen_net.train()
-    dis_model = dis_net.train()
-    #tgt_mask = gen_model.generate_square_subsequent_mask(args.max_len - 1, device)
-    #scheduler 
+    model_dict['generator'].train()
+    model_dict['discriminator'].train()
+
     for i, img in enumerate(tqdm(dataloader)):
 
-         # Optimizer setting
-        #real_img = img.to(device, non_blocking=True)
-        real_img = img.type(torch.cuda.FloatTensor).to("cuda:0")
+        # Optimizer setting
+        optimizer_dict['generator'].zero_grad()
+        optimizer_dict['discriminator'].zero_grad()
 
-        #Sample noise as generator input
-        z = torch.cuda.FloatTensor(np.random.normal(0, 1, (img.shape[0], 1024)))
-        dis_optimizer.zero_grad()
+        # Input, output setting
+        real_img = img.to(device, non_blocking=True)
+        input_noise_dis = torch.randn(img.size(0), args.latent_dim).to(device)
+        input_noise_gen = torch.randn(img.size(0), args.latent_dim).to(device)
 
-        #Train Discriminator
-        real_validity = dis_net(real_img)
-        fake_img = gen_net(z, epoch).detach()
-        assert fake_img.size() == real_img.size(), f"fake_img.size(): {fake_img.size()} real_img.size(): {real_img.size()}"
-        fake_validity = dis_net(fake_img)
+        #===================================#
+        #========Train Discriminator========#
+        #===================================#
 
-        #Discriminator loss
-        # cal loss
-        if args.loss == 'standard':
-            real_label = torch.full((img.shape[0],), 1., dtype=torch.float, device=real_img.get_device())
-            fake_label = torch.full((img.shape[0],), 0., dtype=torch.float, device=real_img.get_device())
-            real_validity = nn.Sigmoid()(real_validity.view(-1))
-            fake_validity = nn.Sigmoid()(fake_validity.view(-1))
-            d_real_loss = nn.BCELoss()(real_validity, real_label)
-            d_fake_loss = nn.BCELoss()(fake_validity, fake_label)
+        with autocast():
+            # Generate fake image
+            fake_img = model_dict['generator'](input_noise_dis).detach()
+            assert fake_img.size() == real_img.size()
+            # Discriminate to real image
+            real_validity = model_dict['discriminator'](real_img)[:,0,]
+            fake_validity = model_dict['discriminator'](fake_img)[:,0,]
+            
+        # Discriminator loss
+        gradient_penalty = compute_gradient_penalty(
+            model_dict['discriminator'], real_img, fake_img, phi=args.phi)
+        d_loss = -torch.mean(real_validity) + torch.mean(fake_validity) + gradient_penalty * 10 / (args.phi ** 2)
+        d_loss += (torch.mean(real_validity) ** 2) * 1e-3
 
-        elif args.loss == 'lsgan':
-            if isinstance(fake_validity, list):
-                d_loss = 0
-                for real_validity_item, fake_validity_item in zip(real_validity, fake_validity):
-                    real_label = torch.full((real_validity_item.shape[0],real_validity_item.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
-                    fake_label = torch.full((real_validity_item.shape[0],real_validity_item.shape[1]), 0., dtype=torch.float, device=real_img.get_device())
-                    d_real_loss = nn.MSELoss()(real_validity_item, real_label)
-                    d_fake_loss = nn.MSELoss()(fake_validity_item, fake_label)
-                    d_loss += d_real_loss + d_fake_loss
-            else:
-                real_label = torch.full((real_validity.shape[0],real_validity.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
-                fake_label = torch.full((real_validity.shape[0],real_validity.shape[1]), 0., dtype=torch.float, device=real_img.get_device())
-                d_real_loss = nn.MSELoss()(real_validity, real_label)
-                d_fake_loss = nn.MSELoss()(fake_validity, fake_label)
-                d_loss = d_real_loss + d_fake_loss
+        # Discriminator loss back-propagation
+        scaler_dict['discriminator'].scale(d_loss).backward()
+        scaler_dict['discriminator'].unscale_(optimizer_dict['discriminator'])
+        clip_grad_norm_(model_dict['discriminator'].parameters(), args.clip_grad_norm)
+        scaler_dict['discriminator'].step(optimizer_dict['discriminator'])
+        scaler_dict['discriminator'].update()
 
-        elif args.loss == 'wgangp-eps':
-            gradient_penalty = compute_gradient_penalty(dis_net, real_img, fake_img.detach(), phi=1)
-            d_loss = -torch.mean(real_validity) + torch.mean(fake_validity) + gradient_penalty * 10 / (
-                    1 ** 2)
-            d_loss += (torch.mean(real_validity) ** 2) * 1e-3
-        else:
-            raise NotImplementedError(args.loss)
+        #===================================#
+        #==========Train Generator==========#
+        #===================================#
 
-        d_loss.backward()
-        clip_grad_norm_(dis_model.parameters(), args.clip_grad_norm)
-        dis_optimizer.step()
-
-        #Train Generator
-        gen_optimizer.zero_grad()
-        gen_z = torch.cuda.FloatTensor(np.random.normal(0, 1, (args.gen_batch_size, 1024) ))
-        gen_imgs = gen_net(gen_z, epoch)
-        fake_validity = dis_net(gen_imgs)
+        with autocast():
+            # Generate fake image
+            fake_img = model_dict['generator'](input_noise_gen)
+            fake_validity = model_dict['discriminator'](fake_img)[:,0,]
         
-        if args.loss == "standard":
-            real_label = torch.full((args.gen_batch_size,), 1., dtype=torch.float, device=real_img.get_device())
-            fake_validity = nn.Sigmoid()(fake_validity.view(-1))
-            g_loss = nn.BCELoss()(fake_validity.view(-1), real_label)
+        # Generator loss
+        g_loss = -torch.mean(fake_validity)
 
-        elif args.loss == "lsgan":
-            if isinstance(fake_validity, list):
-                g_loss = 0
-                for fake_validity_item in fake_validity:
-                    real_label = torch.full((fake_validity_item.shape[0],fake_validity_item.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
-                    g_loss += nn.MSELoss()(fake_validity_item, real_label)
-            else:
-                real_label = torch.full((fake_validity.shape[0],fake_validity.shape[1]), 1., dtype=torch.float, device=real_img.get_device())
-                # fake_validity = nn.Sigmoid()(fake_validity.view(-1))
-                g_loss = nn.MSELoss()(fake_validity, real_label)
-        else:
-            g_loss = -torch.mean(fake_validity)
+        # Generator loss back-propagation
+        scaler_dict['generator'].scale(g_loss).backward()
+        scaler_dict['generator'].unscale_(optimizer_dict['generator'])
+        clip_grad_norm_(model_dict['generator'].parameters(), args.clip_grad_norm)
+        scaler_dict['generator'].step(optimizer_dict['generator'])
+        scaler_dict['generator'].update()
 
-        g_loss.backward()
-        clip_grad_norm_(gen_model.parameters(), 5.)
-        gen_optimizer.step()
-        # Back-propagation
-        
-        gen_step += 1
+        if args.scheduler in ['constant', 'warmup']:
+            scheduler_dict['generator'].step()
+            scheduler_dict['discriminator'].step()
+        if args.scheduler == 'reduce_train':
+            scheduler_dict['generator'].step(g_loss)
+            scheduler_dict['discriminator'].step(d_loss)
 
-        with torch.no_grad():
-            # Print loss value only training
-            if gen_step and i % args.print_freq == 0:
-                sample_imgs=gen_imgs[:16]
-                save_image(sample_imgs, f'sampled_images_{args.exp_name}.jpg', nrow=5, normalize=True, scale_each=True)
-                print(
-                    "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]" %
-                     (epoch, args.num_epochs, i % len(dataloader), len(dataloader), d_loss.item(), g_loss.item()))
+        # Print loss value onlty training
+        if i == 0 or (i+1) % args.print_freq == 0 or (i+1)==len(dataloader):
+            save_image(fake_img[:16], os.path.join(args.transgan_save_path, f'sampled_images_{epoch}_{i}.jpg'), 
+                       nrow=5, normalize=True, scale_each=True)
+            batch_log = "[Epoch:%d][%d/%d] g_loss:%2.3f | d_loss:%02.2f | learning_rate:%3.6f | spend_time:%3.2fmin" \
+                    % (epoch+1, i+1, len(dataloader)+1, 
+                    g_loss.item(), d_loss.item(), optimizer_dict['generator'].param_groups[0]['lr'], 
+                    (time.time() - start_time_e) / 60)
+            write_log(logger, batch_log)
 
-    if epoch % 5 == 0:
-        torch.save({
-            'epoch': epoch,
-            'gen_model': gen_model.state_dict(),
-            'dis_model': dis_model.state_dict(),
-            'gen_optimizer': gen_optimizer.state_dict(),
-            'dis_optimizer': dis_optimizer.state_dict()
-        }, os.path.join(args.save_path, 'gan_checkpoint.pth.tar'))
+# def valid_epoch(args, model_dict, dataloader, device):
 
+#     # Validation setting
+#     model_dict['generator'].eval()
+#     model_dict['discriminator'].eval()
+#     val_loss = 0
+#     val_acc = 0
+#     with torch.no_grad():
+#         for i, img in enumerate(dataloader):
+
+#             # Input, output setting
+#             real_img = img.to(device, non_blocking=True)
+#             input_noise_dis = torch.randn(img.size(0), args.latent_dim)
+#             input_noise_gen = torch.randn(img.size(0), args.latent_dim)
+
+#             # Model
+#             logit = model_dict['discriminator'](real_img)
+#             first_token = logit[:,0,:]
+
+#             # Loss calculate
+#             loss = F.cross_entropy(first_token, label)
+
+#             # Print loss value only training
+#             acc = (((first_token.argmax(dim=1) == label).sum()) / label.size(0)) * 100
+#             val_loss += loss.item()
+#             val_acc += acc.item()
+
+#     return val_loss, val_acc
 
 def transgan_training(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 
     #===================================#
     #==============Logging==============#
@@ -182,7 +153,6 @@ def transgan_training(args):
         'train': transforms.Compose(
         [
             transforms.Resize((args.img_size, args.img_size)),
-            transforms.RandomHorizontalFlip(p=0.2),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ]),
@@ -194,12 +164,10 @@ def transgan_training(args):
         ])
     }
     dataset_dict = {
-        'train': CustomDataset(data_path=args.captioning_data_path, spm_model=spm_model,
-                            transform=transform_dict['train'], phase='train',
-                            min_len=args.min_len, max_len=args.max_len),
-        'valid': CustomDataset(data_path=args.captioning_data_path, spm_model=spm_model,
-                            transform=transform_dict['valid'], phase='valid',
-                            min_len=args.min_len, max_len=args.max_len)
+        'train': CustomDataset(data_path=args.transgan_data_path,
+                            transform=transform_dict['train']),
+        'valid': CustomDataset(data_path=args.transgan_data_path,
+                            transform=transform_dict['valid'])
     }
     dataloader_dict = {
         'train': DataLoader(dataset_dict['train'], drop_last=True,
@@ -219,62 +187,55 @@ def transgan_training(args):
     # 1) Model initiating
     write_log(logger, "Instantiating models...")
 
+    model_dict = {
+        'generator': Generator(d_model=args.d_model, num_encoder_layer=args.num_encoder_layer,
+                               n_head=args.n_head, bottom_width=args.bottom_width,
+                               dim_feedforward=args.dim_feedforward, dropout=args.dropout),
+        'discriminator': Discriminator(n_classes=1, d_model=args.d_model, d_embedding=args.d_embedding, 
+                                       n_head=args.n_head, dim_feedforward=args.dim_feedforward,
+                                       num_encoder_layer=args.num_encoder_layer, img_size=args.img_size, 
+                                       patch_size=args.patch_size, dropout=args.dropout,
+                                       triple_patch=args.triple_patch)
+    }
+    model_dict['generator'] = model_dict['generator'].train()
+    model_dict['generator'] = model_dict['generator'].to(device)
 
-    gen_model = Generator(args)
-    dis_model = Discriminator(args)
-
-    gen_model = gen_model.to(device)
-    dis_model = dis_model.to(device)
-
-    def weights_init(m):
-        classname = m.__class__.__name__
-        if classname.find('Conv2d') != -1:
-            if args.init_type == 'normal':
-                nn.init.normal_(m.weight.data, 0.0, 0.02)
-            elif args.init_type == 'orth':
-                nn.init.orthogonal_(m.weight.data)
-            elif args.init_type == 'xavier_uniform':
-                nn.init.xavier_uniform(m.weight.data, 1.)
-            else:
-                raise NotImplementedError('{} unknown inital type'.format(args.init_type))
-        elif classname.find('BatchNorm2d') != -1:
-            nn.init.normal_(m.weight.data, 1.0, 0.02)
-            nn.init.constant_(m.bias.data, 0.0)
-
-    gen_model.apply(weights_init)
-    dis_model.apply(weights_init)
-
-
-    gpu_ids = [i for i in range(int(torch.cuda.device_count()))]
-    gen_model = torch.nn.DataParallel(gen_model)
-    dis_model = torch.nn.DataParallel(dis_model)
-
-    gen_model.module.cur_stage = 0
-    dis_model.module.cur_stage = 0
-    gen_model.module.alpha = 1.
-    dis_model.module.alpha = 1.
+    model_dict['discriminator'] = model_dict['discriminator'].train()
+    model_dict['discriminator'] = model_dict['discriminator'].to(device)
 
     # 2) Optimizer setting
-    gen_optimizer = optimizer_select(gen_model, args)
-    dis_optimizer = optimizer_select(dis_model, args)
-
-    gen_scheduler = shceduler_select(gen_optimizer, dataloader_dict, args)
-    dis_scheduler = shceduler_select(dis_optimizer, dataloader_dict, args)
-    #scaler = GradScaler()
+    optimizer_dict = {
+        'generator': optimizer_select(model_dict['generator'], args),
+        'discriminator': optimizer_select(model_dict['discriminator'], args)
+    }
+    scheduler_dict = {
+        'generator': shceduler_select(optimizer_dict['generator'], dataloader_dict, args),
+        'discriminator': shceduler_select(optimizer_dict['discriminator'], dataloader_dict, args)
+    }
+    scaler_dict = {
+        'generator': GradScaler(),
+        'discriminator': GradScaler()
+    }
 
     # 3) Model resume
     start_epoch = 0
     if args.resume:
         checkpoint = torch.load(os.path.join(args.save_path, 'gan_checkpoint.pth.tar'), map_location='cpu')
+        # Model load
+        model_dict['generator'].load_state_dict(checkpoint['gen_model'])
+        model_dict['discriminator'].load_state_dict(checkpoint['dis_model'])
+        optimizer_dict['generator'].load_state_dict(checkpoint['gen_optimizer'])
+        optimizer_dict['discriminator'].load_state_dict(checkpoint['dis_optimizer'])
+        scheduler_dict['generator'].load_state_dict(checkpoint['gen_scheduler'])
+        scheduler_dict['discriminator'].load_state_dict(checkpoint['dis_scheduler'])
+        scaler_dict['generator'].load_state_dict(checkpoint['gen_scaler'])
+        scaler_dict['discriminator'].load_state_dict(checkpoint['dis_scaler'])
+        # setting
         start_epoch = checkpoint['epoch'] + 1
-        gen_model.load_state_dict(checkpoint['gen_model'])
-        dis_model.load_state_dict(checkpoint['dis_model'])
-        gen_optimizer.load_state_dict(checkpoint['gen_optimizer'])
-        dis_optimizer.load_state_dict(checkpoint['dis_optimizer'])
-        gen_model = gen_model.train()
-        gen_model = gen_model.to(device)
-        dis_model = dis_model.train()
-        dis_model = dis_model.to(device)
+        model_dict['generator'] = model_dict['generator'].train()
+        model_dict['generator'] = model_dict['generator'].to(device)
+        model_dict['discriminator'] = model_dict['discriminator'].train()
+        model_dict['discriminator'] = model_dict['discriminator'].to(device)
         del checkpoint
 
     #===================================#
@@ -282,7 +243,33 @@ def transgan_training(args):
     #===================================#
 
     write_log(logger, 'Train start!')
+    saving = True
 
     for epoch in range(start_epoch, args.num_epochs):
-        lr_schedulers = (gen_scheduler, dis_scheduler) if args.lr_decay else None
-        train_epoch(args, epoch, gen_model, dis_model, dataloader_dict['train'], gen_optimizer, dis_optimizer,lr_schedulers, device)
+
+        train_epoch(args, epoch, model_dict, dataloader_dict['train'], 
+                    optimizer_dict, scheduler_dict, scaler_dict, logger, device)
+        # val_loss, val_acc = valid_epoch(args, model_dict, dataloader_dict['valid'], device)
+
+        # val_loss /= len(dataloader_dict['valid'])
+        # val_acc /= len(dataloader_dict['valid'])
+        # write_log(logger, 'Validation Loss: %3.3f' % val_loss)
+        # write_log(logger, 'Validation Accuracy: %3.2f%%' % val_acc)
+        if saving:
+            write_log(logger, 'Checkpoint saving...')
+            torch.save({
+                'epoch': epoch,
+                'gen_model': model_dict['generator'].state_dict(),
+                'dis_model': model_dict['discriminator'].state_dcit(),
+                'gen_optimizer': optimizer_dict['generator'].state_dict(),
+                'dis_optimizer': optimizer_dict['discriminator'].state_dict(),
+                'gen_scheduler': scheduler_dict['generator'].state_dict(),
+                'dis_scheduler': scheduler_dict['discriminator'].state_dict(),
+                'gen_scaler': scaler_dict['generator'].state_dict(),
+                'dis_scaler': scaler_dict['discriminator'].state_dict()
+            }, os.path.join(args.captioning_save_path, f'checkpoint_cap.pth.tar'))
+            best_val_acc = val_acc
+            best_epoch = epoch
+        # else:
+        #     else_log = f'Still {best_epoch} epoch accuracy({round(best_val_acc, 2)})% is better...'
+        #     write_log(logger, else_log)

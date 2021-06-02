@@ -31,7 +31,6 @@ class DropPath(nn.Module):
     def forward(self, x):
         return drop_path(x, self.drop_prob, self.training)
 
-
 def _no_grad_trunc_normal_(tensor, mean, std, a, b):
     # Cut & paste from PyTorch official master until it's in a few official releases - RW
     # Method based on https://people.sc.fsu.edu/~jburkardt/presentations/truncated_normal.pdf
@@ -187,7 +186,6 @@ class G_Attention(nn.Module):
         self.mask_7 = get_attn_mask(is_mask, 14)
         self.mask_8 = get_attn_mask(is_mask, 16)
         self.mask_10 = get_attn_mask(is_mask, 20)
-
 
     def forward(self, x, epoch):
         B, N, C = x.shape
@@ -455,13 +453,3 @@ class Discriminator(nn.Module):
         x = self.forward_features(x)
         x = self.head(x)
         return x
-
-
-def _conv_filter(state_dict, patch_size=16):
-    """ convert patch embedding weight from manual patchify + linear proj to conv"""
-    out_dict = {}
-    for k, v in state_dict.items():
-        if 'patch_embed.proj.weight' in k:
-            v = v.reshape((v.shape[0], 3, patch_size, patch_size))
-        out_dict[k] = v
-    return out_dict
