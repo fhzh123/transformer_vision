@@ -7,7 +7,7 @@ from torchvision.datasets.utils import download_file_from_google_drive, check_in
 from torch.utils.data import Dataset
 import numpy as np
 
-class CelebA(Dataset):
+class CustomDataset(Dataset):
     """ pyTorch Dataset wrapper for the generic flat directory images dataset """
 
     def __setup_files(self):

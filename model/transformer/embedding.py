@@ -48,6 +48,7 @@ class PatchEmbedding(nn.Module):
             self.seg_half = nn.Parameter(torch.randn(1, d_model))
             self.seg_double = nn.Parameter(torch.randn(1, d_model))
 
+    @autocast()
     def forward(self, x: Tensor) -> Tensor:
         # prepare settings
         batch_size = x.size(0)
@@ -121,6 +122,7 @@ class TransformerEmbedding(nn.Module):
         self.embed_norm = nn.LayerNorm(d_model, eps=1e-12)
         self.dropout = nn.Dropout(embedding_dropout)
 
+    @autocast()
     def forward(self, sequence):
         x = self.dropout(F.gelu(self.linear_layer(self.token(sequence))))
         x = self.embed_norm(x + self.position(sequence))
