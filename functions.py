@@ -40,16 +40,12 @@ def train_epoch(args, epoch, global_steps, gen_net: nn.Module, dis_net: nn.Modul
     start_time_e = time.time()
     gen_model = gen_net.train()
     dis_model = dis_net.train()
-    dis_model.module.cur_stage = gen_model.module.cur_stage
-    #tgt_mask = gen_model.generate_square_subsequent_mask(args.max_len - 1, device)
 
     #scheduler 
     for i, img in enumerate(tqdm(dataloader)):
 
-         # Optimizer setting
 
-        #real_img = img.to(device, non_blocking=True)
-        real_img = img.type(torch.cuda.FloatTensor).to("cuda:0")
+        real_img = img.type(torch.cuda.FloatTensor).to(device)
 
         #Sample noise as generator input
         z = torch.cuda.FloatTensor(np.random.normal(0, 1, (img.shape[0], 1024)))

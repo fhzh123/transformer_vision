@@ -1,7 +1,6 @@
 # Import modules
 import time
 import argparse
-=======
 # Training
 from task.train_vit import vit_training
 from task.train_cap import captioning_training
