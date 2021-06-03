@@ -8,7 +8,6 @@ import numpy as np
 from tqdm import tqdm
 # Import PyTorch
 import torch
-import torchvision
 import torch.nn as nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader

@@ -1,11 +1,10 @@
 # Import modules
 import time
 import argparse
-=======
 # Training
 from task.train_vit import vit_training
 from task.train_cap import captioning_training
-# from train_transgan import transgan_training
+from task.train_gan import transgan_training
 # Testing
 from task.test_cap import captioning_testing
 # Utils
@@ -21,7 +20,6 @@ def main(args):
         # if args.testing:
         #     vit_testing(args)
 
-
     if args.model == 'Captioning':
         if args.training:
             captioning_training(args)
@@ -29,8 +27,8 @@ def main(args):
             captioning_testing(args)
 
     if args.model == 'TransGAN':
-         #if args.training:
-        transgan_training(args)
+        if args.training:
+            transgan_training(args)
     #     if args.testing:
     #         transgan_testing(args)
 
@@ -60,10 +58,9 @@ if __name__=='__main__':
                         help='Model checkpoint file path')
     parser.add_argument('--transgan_preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-    parser.add_argument('--data_path', default='/HDD/dataset/celeba', type=str,
-
+    parser.add_argument('--transgan_data_path', default='/HDD/dataset/celeba', type=str,
                         help='Original data path')
-    parser.add_argument('--save_path', default='/model_checkpoints/', type=str,
+    parser.add_argument('--transgan_save_path', default='./testing_img', type=str,
                         help='Model checkpoint file path')
     # Data setting
     parser.add_argument('--img_size', default=64, type=int,
@@ -83,8 +80,7 @@ if __name__=='__main__':
     parser.add_argument('--max_len', default=300, type=int,
                         help='Maximum length of caption; Default is 300')
     # Model setting
-    parser.add_argument('--parallel', default=False, type=str2bool,
-                        help='Transformer Encoder and Decoder parallel mode; Default is False')
+    # 1) Common
     parser.add_argument('--triple_patch', default=False, type=str2bool,
                         help='Triple patch testing; Default is False')
     parser.add_argument('--patch_size', default=32, type=int, 
@@ -93,7 +89,6 @@ if __name__=='__main__':
                         help='Transformer model dimension; Default is 768')
     parser.add_argument('--d_embedding', default=256, type=int, 
                         help='Transformer embedding word token dimension; Default is 256')
-
     parser.add_argument('--n_head', default=16, type=int, 
                         help="Multihead Attention's head count; Default is 16")
     parser.add_argument('--dim_feedforward', default=2048, type=int, 
@@ -106,6 +101,18 @@ if __name__=='__main__':
                         help="Number of encoder layers; Default is 12")
     parser.add_argument('--num_decoder_layer', default=12, type=int, 
                         help="Number of decoder layers; Default is 12")
+    # 2) Captioning Only
+    parser.add_argument('--parallel', default=False, type=str2bool,
+                        help='Transformer Encoder and Decoder parallel mode; Default is False')
+    # 3) TransGAN Only
+    parser.add_argument('--latent_dim', default=256, type=int,
+                        help='')
+    parser.add_argument('--gan_loss', default='wgangp-eps', type=str,
+                        help='GAN loss setting; Default is wgangp-eps')
+    parser.add_argument('--bottom_width', type=int, default=4,
+                        help='')
+    parser.add_argument('--phi', default=1, type=int,
+                        help='')
     # Optimizer & LR_Scheduler setting
     optim_list = ['AdamW', 'Adam', 'SGD', 'Ralamb']
     scheduler_list = ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda']
@@ -118,6 +125,8 @@ if __name__=='__main__':
     parser.add_argument('--lr_lambda', default=0.95, type=float,
                         help="Lambda learning scheduler's lambda; Default is 0.95")
     # Training setting
+    parser.add_argument('--num_epochs', default=10, type=int, 
+                        help='Training epochs; Default is 10')
     parser.add_argument('--num_workers', default=8, type=int, 
                         help='Num CPU Workers; Default is 8')
     parser.add_argument('--batch_size', default=16, type=int, 
@@ -138,26 +147,8 @@ if __name__=='__main__':
     parser.add_argument('--repetition_penalty', default=1.3, type=float, 
                         help='Beam search repetition penalty term; Default is 1.3')
     # Print frequency
-    parser.add_argument('--print_freq', default=25, type=int, 
+    parser.add_argument('--print_freq', default=100, type=int, 
                         help='Print training process frequency; Default is 100')
-  
-
-    # GAN settings
-    parser.add_argument('--gen_batch_size', default = 4, type = int)
-    parser.add_argument('--dis_batch_size', default=2, type = int)
-    parser.add_argument('--latent_dim', default=1024, type = int)
-    parser.add_argument('--exp_name', default='test_transgan', type = str)
-    parser.add_argument('--loss', default='wgangp-eps',type = str) #wgangp-eps
-    parser.add_argument('--gan_max_len', default=4096, type = int)
-    parser.add_argument('--gf_dim', default = 1024, type = int)
-    parser.add_argument('--df_dim', default = 384, type = int)
-    parser.add_argument('--diff_aug', type=str, default="translation,cutout,color", help = 'differentiable augmentation type')
-    parser.add_argument('--bottom_width', type=int, default=8)
-
-    parser.add_argument('--init_type', type=str, default='normal',choices=['normal', 'orth', 'xavier_uniform', 'false'],help='The init type')
-    parser.add_argument('--lr_decay',action='store_true',help='learning rate decay or not')
-
-
     args = parser.parse_args()
 
     main(args)
