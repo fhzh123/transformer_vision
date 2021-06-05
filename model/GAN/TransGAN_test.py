@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
-from torch.cuda.amp.autocast_mode import autocast
 from torch.nn.modules.activation import MultiheadAttention
 # Import custom modules
 from ..transformer.embedding import PatchEmbedding
@@ -11,23 +10,23 @@ from ..transformer.layer import TransformerEncoderLayer
 def pixel_upsample(x, H, W):
     N, _, C = x.size()
     assert N == H*W
-    x = x.permute(1, 2, 0)
+    x = x.permute(1, 0, 2).contiguous()
     x = x.view(-1, C, H, W)
     x = nn.PixelShuffle(2)(x)
     _, C, H, W = x.size()
     x = x.view(-1, C, H*W)
-    x = x.permute(2, 0, 1)
+    x = x.permute(2,0,1)
     return x, H, W
 
 class Generator(nn.Module):
-    def __init__(self, d_model=256, num_encoder_layer=5, n_head=4, bottom_width=8, 
+    def __init__(self, d_latent=1024, d_model=384, num_encoder_layer=3, n_head=6, bottom_width=8, 
                  dim_feedforward=512, dropout=0.1):
 
         super(Generator, self).__init__()
 
         self.bottom_width = bottom_width
         self.d_model = d_model
-        self.input_linear = nn.Linear(256, (self.bottom_width ** 2) * self.d_model)
+        self.input_linear = nn.Linear(d_latent, (self.bottom_width ** 2) * self.d_model)
 
         # Position Embedding
         self.pos_embed_1 = nn.Parameter(torch.randn(self.bottom_width**2, 1, d_model))

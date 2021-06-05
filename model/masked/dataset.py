@@ -84,7 +84,7 @@ class CustomDataset(Dataset):
             return image, img_id
         else:
             label = self.label[index]
-            return image, patch_image, label
+            return original_image, patch_image, label
 
     def __len__(self):
         return self.num_data

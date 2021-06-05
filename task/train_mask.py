@@ -17,28 +17,28 @@ from model.classification.classification_model import Vision_Transformer
 from optimizer.utils import shceduler_select, optimizer_select
 from utils import TqdmLoggingHandler, write_log, label_smoothing_loss
 
-def train_epoch(args, epoch, model, dataloader, optimizer, scheduler, scaler, logger, device):
+def train_epoch(args, epoch, model_dict, dataloader, optimizer_dict, scheduler_dict, scaler_dict, logger, device):
 
     # Train setting
     start_time_e = time.time()
     model = model.train()
 
-    for i, (img, label) in enumerate(dataloader):
+    for i, (original_img, patch_img, label) in enumerate(dataloader):
 
         # Optimizer setting
         optimizer.zero_grad()
 
         # Input, output setting
-        img = img.to(device, non_blocking=True)
+        original_img = original_img.to(device, non_blocking=True)
+        patch_img = patch_img.to(device, non_blocking=True)
         label = label.long().to(device, non_blocking=True)
 
         # Model
-        logit = model(img)
-        first_token = logit[:,0,:]
-        # first_token = logit
+        cls_token, encoder_upsample = model(img)
 
         # Loss calculate
-        loss = label_smoothing_loss(first_token, label, device)
+        loss_c = label_smoothing_loss(cls_token, label, device)
+        loss_d = 
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         clip_grad_norm_(model.parameters(), args.clip_grad_norm)
@@ -115,7 +115,6 @@ def vit_training(args):
         [
             transforms.Resize((args.img_size, args.img_size)),
             transforms.RandomHorizontalFlip(p=0.3),
-            transforms.ColorJitter(brightness=(0.5, 2)),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ]),

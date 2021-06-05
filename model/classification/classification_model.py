@@ -1,8 +1,8 @@
 # Import PyTorch
-import torch
 from torch import nn
 from torch import Tensor
 from torch.nn import functional as F
+from torch.cuda.amp.autocast_mode import autocast
 from torch.nn.modules.activation import MultiheadAttention
 # Import custom modules
 from ..transformer.embedding import PatchEmbedding
@@ -17,11 +17,6 @@ class Vision_Transformer(nn.Module):
         super(Vision_Transformer, self).__init__()
 
         self.dropout = nn.Dropout(dropout)
-
-        # Initialization
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.kaiming_uniform_(p) 
 
         # Image embedding part
         self.patch_embedding = PatchEmbedding(in_channels=3, patch_size=patch_size,
@@ -38,6 +33,12 @@ class Vision_Transformer(nn.Module):
         self.trg_output_norm = nn.LayerNorm(d_embedding, eps=1e-12)
         self.trg_output_linear2 = nn.Linear(d_embedding, n_classes)
 
+        # Initialization
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.kaiming_uniform_(p) 
+
+    @autocast
     def forward(self, src_img: Tensor) -> Tensor:
         # Image embedding
         encoder_out = self.patch_embedding(src_img).transpose(0, 1)
