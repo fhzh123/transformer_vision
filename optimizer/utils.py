@@ -3,6 +3,7 @@ from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau, LambdaLR
 from transformers import AdamW
 from .optimizer import Ralamb
 from .scheduler import WarmupLinearSchedule
+from functions import LinearLrDecay
 
 def optimizer_select(model, args):
     no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
@@ -21,7 +22,7 @@ def optimizer_select(model, args):
                               args.lr, momentum=0.9)
     elif args.optimizer == 'Adam':
         optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), 
-                               lr=args.lr, eps=1e-8)
+                               lr=args.lr, betas = (0.0, 0.99))
     elif args.optimizer == 'AdamW':
         optimizer = AdamW(model.parameters(), lr=args.lr, eps=1e-8)
     elif args.optimizer == 'Ralamb':
@@ -45,6 +46,8 @@ def shceduler_select(optimizer, dataloader_dict, args):
         scheduler = ReduceLROnPlateau(optimizer, 'min', patience=1, factor=0.5)
     elif args.scheduler == 'lambda':
         scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: args.lr_lambda ** epoch)
+    elif args.scheduler == 'LinearLrDecay':
+        scheduler = LinearLrDecay(optimizer, args.lr, 0.0, 0, 500000 * 5 )
     else:
         raise Exception("Choose shceduler in ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda']")
     return scheduler

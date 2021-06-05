@@ -6,6 +6,7 @@ from torch.nn.modules.activation import MultiheadAttention
 # Import custom modules
 from ..transformer.embedding import PatchEmbedding
 from ..transformer.layer import TransformerEncoderLayer
+from utils import DiffAugment
 
 def pixel_upsample(x, H, W):
     N, _, C = x.size()
@@ -19,25 +20,23 @@ def pixel_upsample(x, H, W):
     return x, H, W
 
 class Generator(nn.Module):
-    def __init__(self, d_model=256, num_encoder_layer=5, n_head=4, bottom_width=8, 
+    def __init__(self,  latent_dim = 1024, d_model=1024, depth='5,4,2', n_head=4, bottom_width=8, 
                  dim_feedforward=512, dropout=0.1):
 
         super(Generator, self).__init__()
 
         self.bottom_width = bottom_width
         self.d_model = d_model
-        self.input_linear = nn.Linear(256, (self.bottom_width ** 2) * self.d_model)
+        self.input_linear = nn.Linear(latent_dim, (self.bottom_width ** 2) * self.d_model)
 
         # Position Embedding
-        self.pos_embed_1 = nn.Parameter(torch.randn(self.bottom_width**2, 1, d_model))
-        self.pos_embed_2 = nn.Parameter(torch.randn((self.bottom_width*2)**2, 1, d_model//4))
-        self.pos_embed_3 = nn.Parameter(torch.randn((self.bottom_width*4)**2, 1, d_model//16))
-        self.pos_embed_4 = nn.Parameter(torch.randn((self.bottom_width*8)**2, 1, d_model//64))
+        self.pos_embed_1 = nn.Parameter(torch.zeros(self.bottom_width**2, 1, d_model))
+        self.pos_embed_2 = nn.Parameter(torch.zeros((self.bottom_width*2)**2, 1, d_model//4))
+        self.pos_embed_3 = nn.Parameter(torch.zeros((self.bottom_width*4)**2, 1, d_model//16))
         self.pos_embed = [
             self.pos_embed_1,
             self.pos_embed_2,
-            self.pos_embed_3,
-            self.pos_embed_4
+            self.pos_embed_3
         ]
 
         # Transformer Encoder part
@@ -45,31 +44,27 @@ class Generator(nn.Module):
                 nn.ModuleList([
                     TransformerEncoderLayer(d_model, MultiheadAttention(
                         d_model, n_head, dropout=dropout), dim_feedforward, dropout=dropout) \
-                        for i in range(num_encoder_layer)]),
+                        for i in range(depth[0])]),
                 nn.ModuleList([
                     TransformerEncoderLayer(d_model//4, MultiheadAttention(
                         d_model//4, n_head, dropout=dropout), dim_feedforward, dropout=dropout) \
-                        for i in range(num_encoder_layer)]),
+                        for i in range(depth[1])]),
                 nn.ModuleList([
                     TransformerEncoderLayer(d_model//16, MultiheadAttention(
                         d_model//16, n_head, dropout=dropout), dim_feedforward, dropout=dropout) \
-                        for i in range(num_encoder_layer)]),
-                nn.ModuleList([
-                    TransformerEncoderLayer(d_model//64, MultiheadAttention(
-                        d_model//64, n_head, dropout=dropout), dim_feedforward, dropout=dropout) \
-                        for i in range(num_encoder_layer)])
+                        for i in range(depth[2])])
         ])
         # Deconvolution
-        self.deconv = nn.Conv2d(self.d_model//64, 3, 1, 1, 0)
+        self.deconv = nn.Conv2d(self.d_model//16, 3, 1, 1, 0)
 
         # Initialization
         for p in self.parameters():
             if p.dim() > 1:
-                nn.init.kaiming_uniform_(p) 
+                nn.init.xavier_uniform(p) 
 
     def forward(self, z):
         # Noise Input
-        x = self.input_linear(z).view(self.bottom_width ** 2, -1, self.d_model)
+        x = self.input_linear(z).view(-1, self.bottom_width ** 2, -1, self.d_model)
         x += self.pos_embed[0]
         H, W = self.bottom_width, self.bottom_width
         # Transformer encoder
@@ -83,16 +78,18 @@ class Generator(nn.Module):
                 for encoder in blocks:
                     x = encoder(x)
         # De-convolution
-        output = self.deconv(x.transpose(0, 1).contiguous().view(-1, self.d_model//64, H, W))
+        output = self.deconv(x.transpose(0, 1).contiguous().view(-1, self.d_model//16, H, W))
         return output
 
 class Discriminator(nn.Module):
-    def __init__(self, n_classes: int, d_model: int = 512, d_embedding: int = 256, 
+    def __init__(self,  n_classes: int, d_model: int = 512, d_embedding: int = 256, 
                  n_head: int = 8, dim_feedforward: int = 2048,
                  num_encoder_layer: int = 10, img_size: int = 224, patch_size: int = 16, 
-                 dropout: float = 0.3, triple_patch: bool = False):
+                 dropout: float = 0.3, triple_patch: bool = False, diff_aug: str = "translation,cutout,color" ):
     
         super(Discriminator, self).__init__()
+
+        self.diff_aug = diff_aug
 
         self.dropout = nn.Dropout(dropout)
 
@@ -114,9 +111,13 @@ class Discriminator(nn.Module):
         # Initialization
         for p in self.parameters():
             if p.dim() > 1:
-                nn.init.kaiming_uniform_(p) 
+                 nn.init.xavier_uniform(p) 
 
     def forward(self, src_img: Tensor) -> Tensor:
+        
+        if self.diff_aug is not "None":
+            src_img = DiffAugment(src_img, self.diff_aug, True)
+
         # Image embedding
         encoder_out = self.patch_embedding(src_img).transpose(0, 1)
         

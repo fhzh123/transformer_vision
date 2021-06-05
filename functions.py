@@ -34,7 +34,7 @@ def compute_gradient_penalty(D, real_samples, fake_samples, phi):
     gradient_penalty = ((gradients.norm(2, dim=1) - phi) ** 2).mean()
     return gradient_penalty
 
-def train_epoch(args, epoch, global_steps, gen_net: nn.Module, dis_net: nn.Module, dataloader,   gen_optimizer, dis_optimizer, device, schedulers =None):
+def train_epoch(args, epoch, global_steps, gen_net: nn.Module, dis_net: nn.Module, dataloader, gen_optimizer, dis_optimizer, device, schedulers =None):
     gen_step = 0
     # Train setting
     start_time_e = time.time()
@@ -160,8 +160,6 @@ def train(args, gen_net: nn.Module, dis_net: nn.Module, gen_optimizer, dis_optim
     # train mode
     gen_net = gen_net.train()
     dis_net = dis_net.train()
-    dis_net.module.cur_stage = gen_net.module.cur_stage
-    
 
     for iter_idx, (imgs, _) in enumerate(tqdm(train_loader)):
         global_steps = writer_dict['train_global_steps']
@@ -171,7 +169,7 @@ def train(args, gen_net: nn.Module, dis_net: nn.Module, gen_optimizer, dis_optim
             dis_net.module.alpha = gen_net.module.alpha
 
         # Adversarial ground truths
-        real_imgs = imgs.type(torch.cuda.FloatTensor).to("cuda:0")
+        real_imgs = imgs.type(torch.cuda.FloatTensor).cuda()
 
         # Sample noise as generator input
         z = torch.cuda.FloatTensor(np.random.normal(0, 1, (imgs.shape[0], args.latent_dim))).to(real_imgs.get_device())

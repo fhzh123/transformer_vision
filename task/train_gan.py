@@ -91,7 +91,7 @@ def train_epoch(args, epoch, model_dict, dataloader, optimizer_dict, scheduler_d
 
         # Print loss value onlty training
         if i == 0 or (i+1) % args.print_freq == 0 or (i+1)==len(dataloader):
-            save_image(fake_img[:16], os.path.join(args.transgan_save_path, f'sampled_images_{epoch}_{i}.jpg'), 
+            save_image(fake_img[:16], os.path.join(args.transgan_save_path, f'sampled_images.jpg'), 
                        nrow=5, normalize=True, scale_each=True)
             batch_log = "[Epoch:%d][%d/%d] g_loss:%2.3f | d_loss:%02.2f | learning_rate:%3.6f | spend_time:%3.2fmin" \
                     % (epoch+1, i+1, len(dataloader)+1, 
@@ -129,7 +129,7 @@ def train_epoch(args, epoch, model_dict, dataloader, optimizer_dict, scheduler_d
 #     return val_loss, val_acc
 
 def transgan_training(args):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     #===================================#
     #==============Logging==============#
@@ -188,14 +188,14 @@ def transgan_training(args):
     write_log(logger, "Instantiating models...")
 
     model_dict = {
-        'generator': Generator(d_model=args.d_model, num_encoder_layer=args.num_encoder_layer,
+        'generator': Generator(d_model=args.gf_dim, depth = args.depth,
                                n_head=args.n_head, bottom_width=args.bottom_width,
                                dim_feedforward=args.dim_feedforward, dropout=args.dropout),
-        'discriminator': Discriminator(n_classes=1, d_model=args.d_model, d_embedding=args.d_embedding, 
+        'discriminator': Discriminator(n_classes=1, d_model=args.df_dim, d_embedding=args.d_embedding, 
                                        n_head=args.n_head, dim_feedforward=args.dim_feedforward,
                                        num_encoder_layer=args.num_encoder_layer, img_size=args.img_size, 
                                        patch_size=args.patch_size, dropout=args.dropout,
-                                       triple_patch=args.triple_patch)
+                                       triple_patch=args.triple_patch, diff_aug=args.diff_aug)
     }
     model_dict['generator'] = model_dict['generator'].train()
     model_dict['generator'] = model_dict['generator'].to(device)
@@ -260,15 +260,14 @@ def transgan_training(args):
             torch.save({
                 'epoch': epoch,
                 'gen_model': model_dict['generator'].state_dict(),
-                'dis_model': model_dict['discriminator'].state_dcit(),
+                'dis_model': model_dict['discriminator'].state_dict(),
                 'gen_optimizer': optimizer_dict['generator'].state_dict(),
                 'dis_optimizer': optimizer_dict['discriminator'].state_dict(),
                 'gen_scheduler': scheduler_dict['generator'].state_dict(),
                 'dis_scheduler': scheduler_dict['discriminator'].state_dict(),
                 'gen_scaler': scaler_dict['generator'].state_dict(),
                 'dis_scaler': scaler_dict['discriminator'].state_dict()
-            }, os.path.join(args.captioning_save_path, f'checkpoint_cap.pth.tar'))
-            best_val_acc = val_acc
+            }, os.path.join(args.transgan_checkpt_save_path, f'checkpoint_gan.pth.tar'))
             best_epoch = epoch
         # else:
         #     else_log = f'Still {best_epoch} epoch accuracy({round(best_val_acc, 2)})% is better...'
