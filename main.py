@@ -40,7 +40,7 @@ if __name__=='__main__':
     # Task setting
     parser.add_argument('--model', default='TransGAN' ,type=str, choices=['ViT', 'Captioning', 'TransGAN'],
                         help="Choose model in 'ViT', 'Captioning', 'TransGAN'")
-    parser.add_argument('--training', action='store_true')
+    parser.add_argument('--training', default=True, action='store_true')
     parser.add_argument('--testing', action='store_true')
     parser.add_argument('--resume', action='store_true')
     # Path setting
@@ -58,12 +58,14 @@ if __name__=='__main__':
                         help='Model checkpoint file path')
     parser.add_argument('--transgan_preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-    parser.add_argument('--transgan_data_path', default='./dataset/cifar10/train', type=str,
+    parser.add_argument('--transgan_data_path', default='/HDD/dataset/cifar-10/train', type=str,
                         help='Original data path')
     parser.add_argument('--transgan_save_path', default='./testing_img', type=str,
                         help='Model checkpoint file path')
+    parser.add_argument('--transgan_checkpt_save_path', default='/HDD/sujincho/model_checkpoint/TransGAN', type=str,
+                        help='Model checkpoint file path')
     # Data setting
-    parser.add_argument('--img_size', default=64, type=int,
+    parser.add_argument('--img_size', default=32, type=int,
                         help='Image resize size; Default is 256')
     parser.add_argument('--vocab_size', default=8000, type=int,
                         help='Caption vocabulary size; Default is 8000')
@@ -83,17 +85,17 @@ if __name__=='__main__':
     # 1) Common
     parser.add_argument('--triple_patch', default=False, type=str2bool,
                         help='Triple patch testing; Default is False')
-    parser.add_argument('--patch_size', default=32, type=int, 
+    parser.add_argument('--patch_size', default=8, type=int, 
                         help='ViT patch size; Default is 32')
     parser.add_argument('--d_model', default=1024, type=int, 
                          help='Transformer model dimension; Default is 768')
     parser.add_argument('--d_embedding', default=256, type=int, 
                         help='Transformer embedding word token dimension; Default is 256')
-    parser.add_argument('--n_head', default=16, type=int, 
+    parser.add_argument('--n_head', default=8, type=int, 
                         help="Multihead Attention's head count; Default is 16")
-    parser.add_argument('--dim_feedforward', default=2048, type=int, 
+    parser.add_argument('--dim_feedforward', default=1024, type=int, 
                         help="Feedforward network's dimension; Default is 2048")
-    parser.add_argument('--dropout', default=0.1, type=float, 
+    parser.add_argument('--dropout', default=0., type=float, 
                         help="Dropout ration; Default is 0.1")
     parser.add_argument('--embedding_dropout', default=0.1, type=float, 
                         help="Embedding dropout ration; Default is 0.1")
@@ -109,13 +111,15 @@ if __name__=='__main__':
                         help='')
     parser.add_argument('--gan_loss', default='wgangp-eps', type=str,
                         help='GAN loss setting; Default is wgangp-eps')
-    parser.add_argument('--bottom_width', type=int, default=4,
+    parser.add_argument('--bottom_width', type=int, default=8,
                         help='')
     parser.add_argument('--phi', default=1, type=int,
                         help='')
-    parser.add_argument('--depth', default='5,4,2', type=int, nargs='+', help = 'TransGAN depth : Default is TransGAN-XL')
-    parser.add_argument('--gf_dim', default=1024, help = 'Generator dimension: Default is 1024')
-    parser.add_argument('--df_dim', default=384, help = 'Discriminator dimension: Default is 384')
+    parser.add_argument('--depth', default='542' ,type=str, nargs='+', help = 'TransGAN depth : Default is TransGAN-XL')
+    parser.add_argument('--gf_dim', default=1024, type=int, help = 'Generator dimension: Default is 1024')
+    parser.add_argument('--df_dim', default=384, type=int, help = 'Discriminator dimension: Default is 384')
+    parser.add_argument('--diff_aug', default='translation,cutout,color' , type = str, help = 'diff augment setting: Default is True')
+    parser.add_argument('--lr_decay', default=True, action='store_true')
     # Optimizer & LR_Scheduler setting
     optim_list = ['AdamW', 'Adam', 'SGD', 'Ralamb']
     scheduler_list = ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda']
@@ -132,7 +136,7 @@ if __name__=='__main__':
                         help='Training epochs; Default is 10')
     parser.add_argument('--num_workers', default=8, type=int, 
                         help='Num CPU Workers; Default is 8')
-    parser.add_argument('--batch_size', default=16, type=int, 
+    parser.add_argument('--batch_size', default=64, type=int, 
                         help='Batch size; Default is 16')
     parser.add_argument('--lr', default=5e-5, type=float,
                         help='Maximum learning rate of warmup scheduler; Default is 5e-5')

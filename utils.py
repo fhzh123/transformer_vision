@@ -1,75 +1,53 @@
-# Import modules
-import os
-import sys
-import tqdm
-import logging
-import argparse
-# Import PyTorch
-import torch
-import torch.nn.functional as F
+from torch import optim
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau, LambdaLR
+from transformers import AdamW
+from .optimizer import Ralamb
+from .scheduler import WarmupLinearSchedule
+from functions import LinearLrDecay
 
-def label_smoothing_loss(pred, gold, device, smoothing_eps=0.1):
-    ''' Calculate cross entropy loss, apply label smoothing if needed. '''
-    gold = gold.contiguous().view(-1)
-    n_class = pred.size(1)
+def optimizer_select(model, args):
+    no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
+    optimizer_grouped_parameters = [
+        {
+            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "weight_decay": args.w_decay
+        },
+        {
+            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "weight_decay": 0.0
+        },
+    ]
+    if args.optimizer == 'SGD':
+        optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), 
+                              args.lr, momentum=0.9)
+    elif args.optimizer == 'Adam':
+        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), 
+                               lr=args.lr, betas = (0.0, 0.99))
+    elif args.optimizer == 'AdamW':
+        optimizer = AdamW(model.parameters(), lr=args.lr, eps=1e-8)
+    elif args.optimizer == 'Ralamb':
+        optimizer = Ralamb(filter(lambda p: p.requires_grad, model.parameters()), 
+                           lr=args.lr)
+    else:
+        raise Exception("Choose optimizer in ['AdamW', 'Adam', 'SGD', 'Ralamb']")
+    return optimizer
 
-    one_hot = torch.zeros_like(pred).scatter(1, gold.view(-1, 1), 1).to(device)
-    one_hot = one_hot * (1 - smoothing_eps) + (1 - one_hot) * smoothing_eps / (n_class - 1)
-    log_prb = F.log_softmax(pred, dim=1)
-
-    loss = -(one_hot * log_prb).sum(dim=1)
-    return loss.mean()
-
-class UnNormalize(object):
-    def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, tensor):
-        """
-        Args:
-            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
-        Returns:
-            Tensor: Normalized image.
-        """
-        for t, m, s in zip(tensor, self.mean, self.std):
-            t.mul_(s).add_(m)
-            # The normalize code -> t.sub_(m).div_(s)
-        return tensor
-        
-def str2bool(v): 
-    if isinstance(v, bool): 
-        return v 
-    if v.lower() in ('yes', 'true', 't', 'y', '1'): 
-        return True 
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'): 
-        return False 
-    else: 
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-
-class TqdmLoggingHandler(logging.Handler):
-    def __init__(self, level=logging.DEBUG):
-        super().__init__(level)
-        self.stream = sys.stdout
-
-    def flush(self):
-        self.acquire()
-        try:
-            if self.stream and hasattr(self.stream, "flush"):
-                self.stream.flush()
-        finally:
-            self.release()
-
-    def emit(self, record):
-        try:
-            msg = self.format(record)
-            tqdm.tqdm.write(msg, self.stream)
-            self.flush()
-        except (KeyboardInterrupt, SystemExit, RecursionError):
-            raise
-        except Exception:
-            self.handleError(record)
-
-def write_log(logger, message):
-    if logger:
-        logger.info(message)
+def shceduler_select(optimizer, dataloader_dict, args):
+    if args.scheduler == 'constant':
+        scheduler = StepLR(optimizer, step_size=len(dataloader_dict['train']), gamma=1)
+    elif args.scheduler == 'warmup':
+        scheduler = WarmupLinearSchedule(optimizer, 
+                                        warmup_steps=int(len(dataloader_dict['train'])*args.n_warmup_epochs), 
+                                        t_total=len(dataloader_dict['train'])*args.num_epochs)
+    elif args.scheduler == 'reduce_train':
+        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=int(len(dataloader_dict['train'])*1.5),
+                                      factor=0.5)
+    elif args.scheduler == 'reduce_valid':
+        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=1, factor=0.5)
+    elif args.scheduler == 'lambda':
+        scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: args.lr_lambda ** epoch)
+    elif args.scheduler == 'LinearLrDecay':
+        scheduler = LinearLrDecay(optimizer, args.lr, 0.0, 0, 500000 * 5 )
+    else:
+        raise Exception("Choose shceduler in ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda']")
+    return scheduler

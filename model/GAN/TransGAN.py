@@ -6,6 +6,7 @@ from torch.nn.modules.activation import MultiheadAttention
 # Import custom modules
 from ..transformer.embedding import PatchEmbedding
 from ..transformer.layer import TransformerEncoderLayer
+from utils import DiffAugment
 
 def pixel_upsample(x, H, W):
     N, _, C = x.size()
@@ -81,12 +82,14 @@ class Generator(nn.Module):
         return output
 
 class Discriminator(nn.Module):
-    def __init__(self, n_classes: int, d_model: int = 512, d_embedding: int = 256, 
+    def __init__(self,  n_classes: int, d_model: int = 512, d_embedding: int = 256, 
                  n_head: int = 8, dim_feedforward: int = 2048,
                  num_encoder_layer: int = 10, img_size: int = 224, patch_size: int = 16, 
-                 dropout: float = 0.3, triple_patch: bool = False):
+                 dropout: float = 0.3, triple_patch: bool = False, diff_aug: str = "translation,cutout,color" ):
     
         super(Discriminator, self).__init__()
+
+        self.diff_aug = diff_aug
 
         self.dropout = nn.Dropout(dropout)
 
@@ -108,9 +111,13 @@ class Discriminator(nn.Module):
         # Initialization
         for p in self.parameters():
             if p.dim() > 1:
-                nn.init.kaiming_uniform_(p) 
+                 nn.init.xavier_uniform(p) 
 
     def forward(self, src_img: Tensor) -> Tensor:
+        
+        if self.diff_aug is not "None":
+            src_img = DiffAugment(src_img, self.diff_aug, True)
+
         # Image embedding
         encoder_out = self.patch_embedding(src_img).transpose(0, 1)
         
