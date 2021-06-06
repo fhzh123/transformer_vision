@@ -36,7 +36,7 @@ def train_epoch(args, epoch, model_dict, dataloader, optimizer_dict, scheduler_d
         # Input, output setting
         real_img = img.to(device, non_blocking=True)
         input_noise_dis = torch.randn(img.size(0), args.latent_dim).to(device)
-        input_noise_gen = torch.randn(img.size(0), args.latent_dim).to(device)
+        input_noise_gen = torch.randn(img.size(0), args.latent_dim).to(device) #batchsize(64) * 1024
 
         #===================================#
         #========Train Discriminator========#
@@ -44,11 +44,11 @@ def train_epoch(args, epoch, model_dict, dataloader, optimizer_dict, scheduler_d
 
         with autocast():
             # Generate fake image
-            fake_img = model_dict['generator'](input_noise_dis).detach()
+            fake_img = model_dict['generator'](input_noise_dis, epoch).detach()
             assert fake_img.size() == real_img.size()
             # Discriminate to real image
-            real_validity = model_dict['discriminator'](real_img)[:,0,]
-            fake_validity = model_dict['discriminator'](fake_img)[:,0,]
+            real_validity = model_dict['discriminator'](real_img, epoch)
+            fake_validity = model_dict['discriminator'](fake_img, epoch)
             
         # Discriminator loss
         gradient_penalty = compute_gradient_penalty(
@@ -69,8 +69,8 @@ def train_epoch(args, epoch, model_dict, dataloader, optimizer_dict, scheduler_d
 
         with autocast():
             # Generate fake image
-            fake_img = model_dict['generator'](input_noise_gen)
-            fake_validity = model_dict['discriminator'](fake_img)[:,0,]
+            fake_img = model_dict['generator'](input_noise_gen, epoch)
+            fake_validity = model_dict['discriminator'](fake_img, epoch)[:,0,]
         
         # Generator loss
         g_loss = -torch.mean(fake_validity)

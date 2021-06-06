@@ -58,7 +58,7 @@ if __name__=='__main__':
                         help='Model checkpoint file path')
     parser.add_argument('--transgan_preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-    parser.add_argument('--transgan_data_path', default='/HDD/dataset/cifar-10/train', type=str,
+    parser.add_argument('--transgan_data_path', default='./dataset/cifar10/train', type=str,
                         help='Original data path')
     parser.add_argument('--transgan_save_path', default='./testing_img', type=str,
                         help='Model checkpoint file path')
@@ -137,7 +137,7 @@ if __name__=='__main__':
                         help='Training epochs; Default is 10')
     parser.add_argument('--num_workers', default=8, type=int, 
                         help='Num CPU Workers; Default is 8')
-    parser.add_argument('--batch_size', default=64, type=int, 
+    parser.add_argument('--batch_size', default=4, type=int, 
                         help='Batch size; Default is 16')
     parser.add_argument('--lr', default=5e-5, type=float,
                         help='Maximum learning rate of warmup scheduler; Default is 5e-5')
@@ -148,7 +148,7 @@ if __name__=='__main__':
     # Testing setting
     parser.add_argument('--test_batch_size', default=32, type=int, 
                         help='Test batch size; Default is 32')
-    parser.add_argument('--beam_size', default=5, type=int, 
+    parser.add_argument('--beam_size', default=5, type=int, \
                         help='Beam search size; Default is 5')
     parser.add_argument('--beam_alpha', default=0.7, type=float, 
                         help='Beam search length normalization; Default is 0.7')

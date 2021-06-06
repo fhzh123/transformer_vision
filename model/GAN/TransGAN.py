@@ -6,7 +6,7 @@ from torch.nn.modules.activation import MultiheadAttention
 # Import custom modules
 from ..transformer.embedding import PatchEmbedding
 from ..transformer.layer import TransformerEncoderLayer
-from utils import DiffAugment
+from .utils import DiffAugment
 
 
 class matmul(nn.Module):
@@ -35,15 +35,15 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
-def pixel_upsample(x, H, W):
-    N, S, C = x.size()
+def pixel_upsample(x, H, W): #첫번째 block을 기준으로 했을 때 
+    N, S, C = x.size() #N=64(batch_size), S=64(H*W), C=dimention_size 
     assert S == H*W
-    x = x.permute(1, 0, 2).contiguous()
-    x = x.view(-1, C, H, W)
-    x = nn.PixelShuffle(2)(x)
-    _, C, H, W = x.size()
-    x = x.view(-1, C, H*W)
-    x = x.permute(0,2,1)
+    x = x.permute(1, 0, 2).contiguous() #(H*W), N(batch_size), C(dimention_size)
+    x = x.view(-1, C, H, W) #batch_size, C(dimension_size), H, W 
+    x = nn.PixelShuffle(2)(x) # 64, 256, 16, 16 , 2=>upscale factor, (batch_size, dim/4, H*2, W*2) 
+    _, C, H, W = x.size() # 64, 256, 16, 16 
+    x = x.view(-1, C, H*W) # 64, 256, 16*16
+    x = x.permute(0,2,1) #64, 16*16, 256
     return x, H, W
 
 def get_attn_mask(N, w):
@@ -133,10 +133,10 @@ class Generator(nn.Module):
 
         self.bottom_width = bottom_width
         self.d_model = d_model
-        self.input_linear = nn.Linear(latent_dim, (self.bottom_width ** 2) * self.d_model)
+        self.input_linear = nn.Linear(latent_dim, (self.bottom_width ** 2) * self.d_model) #batch size * latent_dim => batch_size * (H*W) * self.d_model 
 
-        # Position Embedding
-        self.pos_embed_1 = nn.Parameter(torch.zeros(1, self.bottom_width**2,  d_model))
+        # Positional encoding (Learnable positional encoding)
+        self.pos_embed_1 = nn.Parameter(torch.zeros(1, self.bottom_width**2,  d_model)) 
         self.pos_embed_2 = nn.Parameter(torch.zeros(1, (self.bottom_width*2)**2,  d_model//4))
         self.pos_embed_3 = nn.Parameter(torch.zeros(1, (self.bottom_width*4)**2,  d_model//16))
         self.pos_embed = [
@@ -153,33 +153,33 @@ class Generator(nn.Module):
             for i in range(int(depth[0]))]),
                 nn.ModuleList([
                     Block(
-                    dim=d_model//4, num_heads=n_head, drop=dropout, dim_feedforward = dim_feedforward, is_mask = 0)
+                    dim=d_model//4, num_heads=n_head, drop=dropout, dim_feedforward = dim_feedforward, is_mask = 0) #pixel_upsample 뒤 => dimention이 1/4로 줄어들기 때문에 dim = d_model//4
                         for i in range(int(depth[1]))]),
                 nn.ModuleList([
                     Block(
-                    dim=d_model//16, num_heads=n_head, drop=dropout, dim_feedforward = dim_feedforward, is_mask = (self.bottom_width*4)**2)
-                    if i == int(depth[2])-1
+                    dim=d_model//16, num_heads=n_head, drop=dropout, dim_feedforward = dim_feedforward, is_mask = (self.bottom_width*4)**2) #pixel_upsample 뒤 => dimention이 1/4로 줄어들기 때문에 dim = d_model//16 
+                    if i == int(depth[2])-1                                                                                                 #마지막 encoder에서 locality-aware initialization training을 진행하기 때문에 조건문을 나누었음 
                     
                     else
                         Block(
-                        dim=d_model//16, num_heads=n_head, drop=dropout, dim_feedforward = dim_feedforward, is_mask = 0 ) 
+                        dim=d_model//16, num_heads=n_head, drop=dropout, dim_feedforward = dim_feedforward, is_mask = 0 ) #pixel_upsample 뒤 => dimention이 1/4로 줄어들기 때문에 dim = d_model//16 
                     for i in range(int(depth[2]))])
                     ])
         
         for i in range(len(self.pos_embed)):
-            nn.init.trunc_normal_(self.pos_embed[i], std=.02)
+            nn.init.trunc_normal_(self.pos_embed[i], std=.02) #표준편차가 .02가 되도록 pos_embed 내 파라미터 값 조정 
         # Deconvolution
-        self.deconv = nn.Conv2d(self.d_model//16, 3, 1, 1, 0)
+        self.deconv = nn.Conv2d(self.d_model//16, 3, 1, 1, 0) #Image Generation 최종 Output=> d
 
         # Initialization
 
 
     def forward(self, z, epoch):
         # Noise Input
-        x = self.input_linear(z).view(-1, self.bottom_width ** 2, self.d_model)
-        H, W = self.bottom_width, self.bottom_width
+        x = self.input_linear(z).view(-1, self.bottom_width ** 2, self.d_model) #batch_size * (H*W) * self.d_model =>batch_size, (H*W) * (H*W), self.d_model
+        H, W = self.bottom_width, self.bottom_width #self.bottom_width => initial resolution 
         # Transformer encoder
-        for i, blocks in enumerate(self.transformer_blocks):
+        for i, blocks in enumerate(self.transformer_blocks): 
             if i == 0:
                 for encoder in blocks:
                     x += self.pos_embed[i]
@@ -190,7 +190,7 @@ class Generator(nn.Module):
                 for encoder in blocks:
                     x = encoder(x, epoch)
         # De-convolution
-        output = self.deconv(x.permute(0, 2, 1).reshape(-1, self.d_model//16, H, W))
+        output = self.deconv(x.permute(0, 2, 1).reshape(-1, self.d_model//16, H, W)) #8, 64, 32, 32 => (conv 연산 이후) #8,3,32,32
         return output
 
 class Discriminator(nn.Module):
