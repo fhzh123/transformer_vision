@@ -119,7 +119,8 @@ if __name__=='__main__':
     parser.add_argument('--gf_dim', default=1024, type=int, help = 'Generator dimension: Default is 1024')
     parser.add_argument('--df_dim', default=384, type=int, help = 'Discriminator dimension: Default is 384')
     parser.add_argument('--diff_aug', default='translation,cutout,color' , type = str, help = 'diff augment setting: Default is True')
-    parser.add_argument('--lr_decay', default=True, action='store_true')
+    parser.add_argument('--lr_decay', default=False, action='store_true')
+    parser.add_argument('--init_type', default='xavier_uniform')
     # Optimizer & LR_Scheduler setting
     optim_list = ['AdamW', 'Adam', 'SGD', 'Ralamb']
     scheduler_list = ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda']
