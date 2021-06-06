@@ -88,7 +88,8 @@ def train_epoch(args, epoch, model_dict, dataloader, optimizer_dict, scheduler_d
         if args.scheduler == 'reduce_train':
             scheduler_dict['generator'].step(g_loss)
             scheduler_dict['discriminator'].step(d_loss)
-
+            
+    with torch.no_grad():
         # Print loss value onlty training
         if i == 0 or (i+1) % args.print_freq == 0 or (i+1)==len(dataloader):
             save_image(fake_img[:16], os.path.join(args.transgan_save_path, f'sampled_images_{epoch}_{i}.jpg'), 
@@ -188,7 +189,7 @@ def transgan_training(args):
     write_log(logger, "Instantiating models...")
 
     model_dict = {
-        'generator': Generator(d_model=args.d_model, num_encoder_layer=args.num_encoder_layer,
+        'generator': Generator(d_model=args.gf_dim, latent_dim = args.latent_dim, num_encoder_layer=args.depth,
                                n_head=args.n_head, bottom_width=args.bottom_width,
                                dim_feedforward=args.dim_feedforward, dropout=args.dropout),
         'discriminator': Discriminator(n_classes=1, d_model=args.d_model, d_embedding=args.d_embedding, 
@@ -268,8 +269,8 @@ def transgan_training(args):
                 'gen_scaler': scaler_dict['generator'].state_dict(),
                 'dis_scaler': scaler_dict['discriminator'].state_dict()
             }, os.path.join(args.captioning_save_path, f'checkpoint_cap.pth.tar'))
-            best_val_acc = val_acc
-            best_epoch = epoch
+            #best_val_acc = val_acc
+            #best_epoch = epoch
         # else:
         #     else_log = f'Still {best_epoch} epoch accuracy({round(best_val_acc, 2)})% is better...'
         #     write_log(logger, else_log)

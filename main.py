@@ -58,7 +58,7 @@ if __name__=='__main__':
                         help='Model checkpoint file path')
     parser.add_argument('--transgan_preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-    parser.add_argument('--transgan_data_path', default='/HDD/dataset/celeba', type=str,
+    parser.add_argument('--transgan_data_path', default='./dataset/cifar10/train', type=str,
                         help='Original data path')
     parser.add_argument('--transgan_save_path', default='./testing_img', type=str,
                         help='Model checkpoint file path')
@@ -86,7 +86,7 @@ if __name__=='__main__':
     parser.add_argument('--patch_size', default=32, type=int, 
                         help='ViT patch size; Default is 32')
     parser.add_argument('--d_model', default=1024, type=int, 
-                        help='Transformer model dimension; Default is 768')
+                         help='Transformer model dimension; Default is 768')
     parser.add_argument('--d_embedding', default=256, type=int, 
                         help='Transformer embedding word token dimension; Default is 256')
     parser.add_argument('--n_head', default=16, type=int, 
@@ -105,7 +105,7 @@ if __name__=='__main__':
     parser.add_argument('--parallel', default=False, type=str2bool,
                         help='Transformer Encoder and Decoder parallel mode; Default is False')
     # 3) TransGAN Only
-    parser.add_argument('--latent_dim', default=256, type=int,
+    parser.add_argument('--latent_dim', default=1024, type=int,
                         help='')
     parser.add_argument('--gan_loss', default='wgangp-eps', type=str,
                         help='GAN loss setting; Default is wgangp-eps')
@@ -113,6 +113,9 @@ if __name__=='__main__':
                         help='')
     parser.add_argument('--phi', default=1, type=int,
                         help='')
+    parser.add_argument('--depth', default='5,4,2', type=int, nargs='+', help = 'TransGAN depth : Default is TransGAN-XL')
+    parser.add_argument('--gf_dim', default=1024, help = 'Generator dimension: Default is 1024')
+    parser.add_argument('--df_dim', default=384, help = 'Discriminator dimension: Default is 384')
     # Optimizer & LR_Scheduler setting
     optim_list = ['AdamW', 'Adam', 'SGD', 'Ralamb']
     scheduler_list = ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda']
