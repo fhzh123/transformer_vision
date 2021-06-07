@@ -169,7 +169,7 @@ class Generator(nn.Module):
         for i in range(len(self.pos_embed)):
             nn.init.trunc_normal_(self.pos_embed[i], std=.02) #표준편차가 .02가 되도록 pos_embed 내 파라미터 값 조정 
         # Deconvolution
-        self.deconv = nn.Conv2d(self.d_model//16, 3, 1, 1, 0) #Image Generation 최종 Output=> d
+        self.deconv = nn.Conv2d(self.d_model//16, 3, 1, 1, 0) #Image Generation 최종 Output=> linear flatten
 
         # Initialization
 
@@ -209,7 +209,7 @@ class Discriminator(nn.Module):
         num_patches = (img_size // patch_size)**2
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, d_model))
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, d_model)) #+1=>extra patch+position embedding
 
         self.encoders = nn.ModuleList([
            Block(
@@ -224,14 +224,17 @@ class Discriminator(nn.Module):
     def forward(self,  src_img: Tensor, epoch) -> Tensor:
         
         if self.diff_aug!="None":
-            src_img = DiffAugment(src_img, self.diff_aug, True)
+            src_img = DiffAugment(src_img, self.diff_aug)
 
         B = src_img.shape[0]
         x = self.patch_embed(src_img).flatten(2).permute(0, 2, 1)
+        #self.patch_embed(src_img)=>4,384,4,4
+        #flatten(2)=>4,384,16 (flatten=>start_dimension부터 dimension flatten)
+        #permute(0,2,1)=>4,16,384
 
-        cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat((cls_tokens, x ), dim=1)
-        x = x + self.pos_embed
+        cls_tokens = self.cls_token.expand(B, -1, -1) #(1,1,384)=>(4,1,384)
+        x = torch.cat((cls_tokens, x ), dim=1) #(4,1,384)+(4,16,384)=(4,17,384)
+        x = x + self.pos_embed #(4,17,384)+(1,17,384)=>(4,17,384)
 
         # Transformer Encoder
         for encoder in self.encoders:
@@ -239,6 +242,6 @@ class Discriminator(nn.Module):
         
         encoder_out = self.norm(encoder_out)
 
-        encoder_out= self.head(encoder_out[:,0])
+        output= self.head(encoder_out[:,0]) #(4,17)
 
-        return encoder_out
+        return output

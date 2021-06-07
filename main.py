@@ -58,7 +58,7 @@ if __name__=='__main__':
                         help='Model checkpoint file path')
     parser.add_argument('--transgan_preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-    parser.add_argument('--transgan_data_path', default='./dataset/cifar10/train', type=str,
+    parser.add_argument('--transgan_data_path', default='./dataset/cifar-10/train/train', type=str,
                         help='Original data path')
     parser.add_argument('--transgan_save_path', default='./testing_img', type=str,
                         help='Model checkpoint file path')

@@ -4,17 +4,17 @@ import torch.nn as nn
 import random
 import torch.nn.functional as F
 
-def compute_gradient_penalty(D, real_samples, fake_samples, phi):
+def compute_gradient_penalty(D, real_samples, fake_samples, epoch, phi):
     """Calculates the gradient penalty loss for WGAN GP"""
     # Random weight term for interpolation between real and fake samples
     alpha = torch.Tensor(np.random.random((real_samples.size(0), 1, 1, 1))).to(real_samples.get_device())
     # Get random interpolation between real and fake samples
     interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
-    d_interpolates = D(interpolates)
+    d_interpolates = D(interpolates, epoch) 
     fake = torch.ones([real_samples.shape[0], 1], requires_grad=False).to(real_samples.get_device())
     # Get gradient w.r.t. interpolates
     gradients = torch.autograd.grad(
-        outputs=d_interpolates[:,0,],
+        outputs=d_interpolates,
         inputs=interpolates,
         grad_outputs=fake,
         create_graph=True,
@@ -40,15 +40,11 @@ def weights_init(m, args):
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0.0)
 
-def DiffAugment(x, policy='', channels_first=True):
+def DiffAugment(x, policy=''):
     if policy:
-        if not channels_first:
-            x = x.permute(0, 3, 1, 2)
         for p in policy.split(','):
             for f in AUGMENT_FNS[p]:
                 x = f(x)
-        if not channels_first:
-            x = x.permute(0, 2, 3, 1)
         x = x.contiguous()
     return x
 

@@ -70,7 +70,7 @@ def train_epoch(args, epoch, model_dict, dataloader, optimizer_dict, scheduler_d
         with autocast():
             # Generate fake image
             fake_img = model_dict['generator'](input_noise_gen, epoch)
-            fake_validity = model_dict['discriminator'](fake_img, epoch)[:,0,]
+            fake_validity = model_dict['discriminator'](fake_img, epoch)
         
         # Generator loss
         g_loss = -torch.mean(fake_validity)
