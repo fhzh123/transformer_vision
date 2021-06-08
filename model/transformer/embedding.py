@@ -20,24 +20,26 @@ class PatchEmbedding(nn.Module):
     def __init__(self, in_channels: int = 3, patch_size: int = 16, d_model: int = 768,
                  img_size: int = 224, triple_patch: bool = False):
         super().__init__()
+        # Hyper-parameter setting
         self.patch_size = patch_size
         self.triple_patch = triple_patch
+
+        # Patch projection & parameter setting
         self.projection = nn.Sequential(
-            # using a conv layer instead of a linear one -> performance gains
             nn.Conv2d(in_channels, d_model, kernel_size=patch_size, stride=patch_size),
             Rearrange('b e (h) (w) -> b (h w) e')
         )
         self.cls_token = nn.Parameter(torch.randn(1, 1, d_model))
         self.positions = nn.Parameter(torch.randn((img_size // patch_size)**2 + 1, d_model))
+        
+        # For triple patch
         if self.triple_patch:
             self.projection_half = nn.Sequential(
-                # using a conv layer instead of a linear one -> performance gains
                 nn.Conv2d(in_channels, d_model, kernel_size=patch_size//2, stride=patch_size//2),
                 Rearrange('b e (h) (w) -> b (h w) e')
             )
             self.positions_half = nn.Parameter(torch.randn((img_size // (patch_size//2))**2 + 1, d_model))
             self.projection_double = nn.Sequential(
-                # using a conv layer instead of a linear one -> performance gains
                 nn.Conv2d(in_channels, d_model, kernel_size=patch_size*2, stride=patch_size*2),
                 Rearrange('b e (h) (w) -> b (h w) e')
             )

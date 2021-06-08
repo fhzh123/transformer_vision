@@ -11,7 +11,6 @@ class CustomDataset(Dataset):
     def __init__(self, data_path, spm_model=None, transform=None, phase='train', min_len=4, max_len=300):
 
         # Pre-setting
-        except_count = 0
         self.phase = phase.lower()
         self.spm_model = spm_model
 

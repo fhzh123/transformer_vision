@@ -22,11 +22,6 @@ class Vision_Transformer(nn.Module):
         # Hyper-parameter setting
         self.pad_id = pad_id
 
-        # Initialization
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.kaiming_uniform_(p) 
-
         # Parallel Transformer
         self.parallel = parallel
         if self.parallel:
@@ -54,11 +49,16 @@ class Vision_Transformer(nn.Module):
             TransformerDecoderLayer(d_model, self_attn, decoder_mask_attn,
                 dim_feedforward, dropout=dropout) for i in range(num_decoder_layer)])
 
-        # Target linear part (Not averaging)
+        # Target linear part
         self.trg_dropout = nn.Dropout(dropout)
         self.trg_output_linear = nn.Linear(d_model, d_embedding)
         self.trg_output_norm = nn.LayerNorm(d_embedding, eps=1e-12)
         self.trg_output_linear2 = nn.Linear(d_embedding, trg_vocab_num)
+
+        # Initialization
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.kaiming_uniform_(p) 
 
     @autocast()
     def forward(self, src_img: Tensor, trg_text: Tensor, tgt_mask: Tensor, 

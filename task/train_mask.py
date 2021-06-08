@@ -149,19 +149,38 @@ def vit_training(args):
 
     # 1) Model initiating
     write_log(logger, "Instantiating models...")
-    model = Vision_Transformer(n_classes=1000, d_model=args.d_model, d_embedding=args.d_embedding, 
+    model_dict = {
+        'generator': generator(n_classes=1000, d_model=args.d_model, d_embedding=args.d_embedding, 
                                n_head=args.n_head, dim_feedforward=args.dim_feedforward,
                                num_encoder_layer=args.num_encoder_layer, img_size=args.img_size, 
                                patch_size=args.patch_size, dropout=args.dropout,
-                               triple_patch=args.triple_patch)
+                               triple_patch=args.triple_patch),
+        'discriminaotr': discriminator(n_classes=1, d_model=args.d_model, d_embedding=args.d_embedding, 
+                                       n_head=args.n_head, dim_feedforward=args.dim_feedforward,
+                                       num_encoder_layer=args.num_encoder_layer, img_size=args.img_size, 
+                                       patch_size=args.patch_size, dropout=args.dropout,
+                                       triple_patch=args.triple_patch)
+    }
 
-    model = model.train()
-    model = model.to(device)
+    model_dict['generator'] = model_dict['generator'].train()
+    model_dict['generator'] = model_dict['generator'].to(device)
+
+    model_dict['discriminator'] = model_dict['discriminator'].train()
+    model_dict['discriminator'] = model_dict['discriminator'].to(device)
 
     # 2) Optimizer setting
-    optimizer = optimizer_select(model, args)
-    scheduler = shceduler_select(optimizer, dataloader_dict, args)
-    scaler = GradScaler()
+    optimizer_dict = {
+        'generator': optimizer_select(model_dict['generator'], args),
+        'discriminator': optimizer_select(model_dict['discriminator'], args)
+    }
+    scheduler_dict = {
+        'generator': shceduler_select(optimizer_dict['generator'], dataloader_dict, args),
+        'discriminator': shceduler_select(optimizer_dict['discriminator'], dataloader_dict, args)
+    }
+    scaler_dict = {
+        'generator': GradScaler(),
+        'discriminator': GradScaler()
+    }
 
     # 2) Model resume
     start_epoch = 0
