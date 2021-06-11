@@ -4,13 +4,44 @@ import torch.nn as nn
 import random
 import torch.nn.functional as F
 
-def compute_gradient_penalty(D, real_samples, fake_samples, epoch, phi):
+def drop_path(x, drop_prob: float = 0., training: bool = False):
+    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
+    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
+    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
+    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
+    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
+    'survival rate' as the argument.
+    """
+    if drop_prob == 0. or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+    random_tensor.floor_()  # binarize
+    output = x.div(keep_prob) * random_tensor
+    return output
+
+
+class DropPath(nn.Module):
+    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
+    """
+    def __init__(self, drop_prob=None):
+        super(DropPath, self).__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x):
+        return drop_path(x, self.drop_prob, self.training)
+
+
+
+
+def compute_gradient_penalty(D, real_samples, fake_samples, phi):
     """Calculates the gradient penalty loss for WGAN GP"""
     # Random weight term for interpolation between real and fake samples
     alpha = torch.Tensor(np.random.random((real_samples.size(0), 1, 1, 1))).to(real_samples.get_device())
     # Get random interpolation between real and fake samples
     interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
-    d_interpolates = D(interpolates, epoch) 
+    d_interpolates = D(interpolates)
     fake = torch.ones([real_samples.shape[0], 1], requires_grad=False).to(real_samples.get_device())
     # Get gradient w.r.t. interpolates
     gradients = torch.autograd.grad(
@@ -21,30 +52,28 @@ def compute_gradient_penalty(D, real_samples, fake_samples, epoch, phi):
         retain_graph=True,
         only_inputs=True,
     )[0]
-    gradients = gradients.view(gradients.size(0), -1)
+    gradients = gradients.contiguous()
+    gradients = gradients.reshape(gradients.size(0), -1)
     gradient_penalty = ((gradients.norm(2, dim=1) - phi) ** 2).mean()
     return gradient_penalty
 
-def weights_init(m, args):
+def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv2d') != -1:
-        if args.init_type == 'normal':
-            nn.init.normal_(m.weight.data, 0.0, 0.02)
-        elif args.init_type == 'orth':
-            nn.init.orthogonal_(m.weight.data)
-        elif args.init_type == 'xavier_uniform':
-            nn.init.xavier_uniform(m.weight.data, 1.)
-        else:
-            raise NotImplementedError('{} unknown inital type'.format(args.init_type))
+        nn.init.xavier_uniform_(m.weight.data)
     elif classname.find('BatchNorm2d') != -1:
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0.0)
 
-def DiffAugment(x, policy=''):
+def DiffAugment(x, policy='', channels_first=True):
     if policy:
+        if not channels_first:
+            x = x.permute(0, 3, 1, 2)
         for p in policy.split(','):
             for f in AUGMENT_FNS[p]:
                 x = f(x)
+        if not channels_first:
+            x = x.permute(0, 2, 3, 1)
         x = x.contiguous()
     return x
 

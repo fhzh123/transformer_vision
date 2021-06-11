@@ -58,7 +58,7 @@ if __name__=='__main__':
                         help='Model checkpoint file path')
     parser.add_argument('--transgan_preprocess_path', default='./preprocessing', type=str,
                         help='Pre-processed data save path')
-    parser.add_argument('--transgan_data_path', default='./dataset/cifar-10/train/train', type=str,
+    parser.add_argument('--transgan_data_path', default='/HDD/dataset/cifar-10/train/', type=str,
                         help='Original data path')
     parser.add_argument('--transgan_save_path', default='./testing_img', type=str,
                         help='Model checkpoint file path')
@@ -91,7 +91,7 @@ if __name__=='__main__':
                          help='Transformer model dimension; Default is 768')
     parser.add_argument('--d_embedding', default=256, type=int, 
                         help='Transformer embedding word token dimension; Default is 256')
-    parser.add_argument('--n_head', default=8, type=int, 
+    parser.add_argument('--n_head', default=4, type=int, 
                         help="Multihead Attention's head count; Default is 16")
     parser.add_argument('--dim_feedforward', default=1024, type=int, 
                         help="Feedforward network's dimension; Default is 2048")
@@ -115,18 +115,19 @@ if __name__=='__main__':
                         help='')
     parser.add_argument('--phi', default=1, type=int,
                         help='')
-    parser.add_argument('--depth', default='542' ,type=str, nargs='+', help = 'TransGAN depth : Default is TransGAN-XL')
+    parser.add_argument('--initial_depth', default=5 ,type=int, help = 'TransGAN depth : Default is TransGAN-XL')
     parser.add_argument('--gf_dim', default=1024, type=int, help = 'Generator dimension: Default is 1024')
     parser.add_argument('--df_dim', default=384, type=int, help = 'Discriminator dimension: Default is 384')
+    parser.add_argument('--gen_bs', default=64, type=int, help='generator batch size when train generator')
     parser.add_argument('--diff_aug', default='translation,cutout,color' , type = str, help = 'diff augment setting: Default is True')
-    parser.add_argument('--lr_decay', default=False, action='store_true')
-    parser.add_argument('--init_type', default='xavier_uniform')
+    parser.add_argument('--beta1', default=0.0, type=float, help='Adam beta 1 parameter')
+    parser.add_argument('--beta2', default=0.99, type=float, help='Adam beta 2 parameter')    
     # Optimizer & LR_Scheduler setting
     optim_list = ['AdamW', 'Adam', 'SGD', 'Ralamb']
-    scheduler_list = ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda']
-    parser.add_argument('--optimizer', default='AdamW', type=str, choices=optim_list,
-                        help="Choose optimizer setting in 'AdamW', 'Adam', 'SGD'; Default is AdamW")
-    parser.add_argument('--scheduler', default='constant', type=str, choices=scheduler_list,
+    scheduler_list = ['constant', 'warmup', 'reduce_train', 'reduce_valid', 'lambda', 'None']
+    parser.add_argument('--optimizer', default='Adam', type=str, choices=optim_list,
+                        help="Choose optimizer setting in 'AdamW', 'Adam', 'SGD'; Default is Adam")
+    parser.add_argument('--scheduler', default='None', type=str, choices=scheduler_list,
                         help="Choose optimizer setting in 'constant', 'warmup', 'reduce'; Default is constant")
     parser.add_argument('--n_warmup_epochs', default=2, type=float, 
                         help='Wamrup epochs when using warmup scheduler; Default is 2')
@@ -137,7 +138,7 @@ if __name__=='__main__':
                         help='Training epochs; Default is 10')
     parser.add_argument('--num_workers', default=8, type=int, 
                         help='Num CPU Workers; Default is 8')
-    parser.add_argument('--batch_size', default=4, type=int, 
+    parser.add_argument('--batch_size', default=64, type=int, 
                         help='Batch size; Default is 16')
     parser.add_argument('--lr', default=5e-5, type=float,
                         help='Maximum learning rate of warmup scheduler; Default is 5e-5')
@@ -148,14 +149,14 @@ if __name__=='__main__':
     # Testing setting
     parser.add_argument('--test_batch_size', default=32, type=int, 
                         help='Test batch size; Default is 32')
-    parser.add_argument('--beam_size', default=5, type=int, \
+    parser.add_argument('--beam_size', default=5, type=int, 
                         help='Beam search size; Default is 5')
     parser.add_argument('--beam_alpha', default=0.7, type=float, 
                         help='Beam search length normalization; Default is 0.7')
     parser.add_argument('--repetition_penalty', default=1.3, type=float, 
                         help='Beam search repetition penalty term; Default is 1.3')
     # Print frequency
-    parser.add_argument('--print_freq', default=100, type=int, 
+    parser.add_argument('--print_freq', default=10, type=int, 
                         help='Print training process frequency; Default is 100')
     args = parser.parse_args()
 
