@@ -69,6 +69,7 @@ class Discriminator(nn.Module):
 
         #Transformer Encoder part
         dpr = [x.item() for x in torch.linspace(0, dropout, num_encoder_layer)]   # stochastic depth decay rule - dropout=0인 경우 어떠한 경로든 drop_path 적용 X 
+        
         self.blocks = nn.ModuleList([
             Discriminator_block(dim=d_model, num_heads=n_head, drop=dropout, drop_path=dpr[i])
             for i in range(num_encoder_layer)])
@@ -81,8 +82,8 @@ class Discriminator(nn.Module):
     def forward_features(self, x):
         
         if "None" not in self.diff_aug_type:
-             diff_aug_cls = DiffAugment(x, self.diff_aug_type, True)
-             x = diff_aug_cls.diff_augment()
+            x = DiffAugment(x, self.diff_aug_type, True)
+
         x = self.patch_embedding(x)
         
         for blk in self.blocks:
@@ -95,5 +96,4 @@ class Discriminator(nn.Module):
         x = self.forward_features(x)
         x = self.head(x)
         return x
-
 
