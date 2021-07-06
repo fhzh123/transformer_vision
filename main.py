@@ -1,4 +1,5 @@
 # Import modules
+from task.train_mpp import mpp_training
 import time
 import argparse
 # Training
@@ -8,6 +9,7 @@ from task.train_cap import captioning_training
 # Testing
 from task.test_cap import captioning_testing
 from task.train_detr import detr_training
+from task.train_mpp import mpp_training
 # Utils
 from utils import str2bool
 
@@ -39,14 +41,18 @@ def main(args):
         # if args.testing:
         #     detr_testing(args)
 
+    if args.model == "MPP":
+        if args.training:
+            mpp_training(args)
+
     # Time calculate
     print(f'Done! ; {round((time.time()-total_start_time)/60, 3)}min spend')
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Parsing Method')
     # Task setting
-    parser.add_argument('--model', type=str, choices=['ViT', 'Captioning', 'TransGAN'], required=True,
-                        help="Choose model in 'ViT', 'Captioning', 'TransGAN'")
+    parser.add_argument('--model', type=str, choices=['ViT', 'Captioning', 'TransGAN', 'MPP'], required=True,
+                        help="Choose model in 'ViT', 'Captioning', 'TransGAN', 'MPP'")
     parser.add_argument('--training', action='store_true')
     parser.add_argument('--testing', action='store_true')
     parser.add_argument('--resume', action='store_true')
@@ -68,6 +74,8 @@ if __name__=='__main__':
     parser.add_argument('--transgan_data_path', default='/HDD/dataset/coco', type=str,
                         help='Original data path')
     parser.add_argument('--transgan_save_path', default='/HDD/kyohoon/model_checkpoint/', type=str,
+                        help='Model checkpoint file path')
+    parser.add_argument('--mpp_save_path', default='save/mpp/model_checkpoint', type=str,
                         help='Model checkpoint file path')
     # Data setting
     parser.add_argument('--img_size', default=256, type=int,
