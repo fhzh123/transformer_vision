@@ -10,8 +10,6 @@ import torchvision.transforms as transforms
 class CustomDataset(Dataset):
     def __init__(self, data_path, spm_model, transform=None, phase='train', min_len=4, max_len=300):
 
-        # Pre-setting
-        except_count = 0
         self.phase = phase.lower()
         self.spm_model = spm_model
 
@@ -31,7 +29,9 @@ class CustomDataset(Dataset):
 
                 # Caption pre-processing
                 caption_encode = [self.spm_model.bos_id()] + \
-                    self.spm_model.EncodeAsIds(c['caption']) + [self.spm_model.eos_id()]
+                                  self.spm_model.EncodeAsIds(c['caption']) + \
+                                 [self.spm_model.eos_id()]
+                # zero pad 
                 if min_len <= len(caption_encode) <= max_len:
                     caption_ = torch.zeros(max_len, dtype=torch.long)
                     caption_[:len(caption_encode)] = torch.tensor(caption_encode, dtype=torch.long)
@@ -54,11 +54,13 @@ class CustomDataset(Dataset):
 
                 # Image pre-processing
                 img_path_id = str(c['image_id']).zfill(12)
-                img_path = os.path.join(data_path, 'valid2017/' + img_path_id + '.jpg')
+                img_path = os.path.join(data_path, 'val2017/' + img_path_id + '.jpg')
 
                 # Caption pre-processing
                 caption_encode = [self.spm_model.bos_id()] + \
-                    self.spm_model.EncodeAsIds(c['caption']) + [self.spm_model.eos_id()]
+                                  self.spm_model.EncodeAsIds(c['caption']) + \
+                                 [self.spm_model.eos_id()]
+                                 
                 if min_len <= len(caption_encode) <= max_len:
                     caption_ = torch.zeros(max_len, dtype=torch.long)
                     caption_[:len(caption_encode)] = torch.tensor(caption_encode, dtype=torch.long)
