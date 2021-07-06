@@ -2,6 +2,7 @@
 import os
 import gc
 import time
+import pickle
 import logging
 import sentencepiece as spm
 import matplotlib.pyplot as plt
@@ -18,6 +19,8 @@ from torch.cuda.amp import GradScaler, autocast
 from model.captioning.dataset import CustomDataset
 from model.captioning.captioning_model import Vision_Transformer
 from utils import TqdmLoggingHandler, write_log, UnNormalize
+
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 def captioning_testing(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -71,10 +74,10 @@ def captioning_testing(args):
                                patch_size=args.patch_size, max_len=args.max_len, pad_id=args.pad_id, 
                                num_encoder_layer=args.num_encoder_layer, num_decoder_layer=args.num_decoder_layer,
                                dropout=args.dropout, embedding_dropout=args.embedding_dropout, parallel=args.parallel,
-                               triple_patch=args.triple_patch, device=device)
+                               triple_patch=args.triple_patch)
 
     # 2) Model load
-    checkpoint = torch.load(os.path.join(args.captioning_save_path, 'checkpoint_cap.pth.tar'))
+    checkpoint = torch.load(os.path.join(args.captioning_save_path, 'checkpoint_cap.pth.tar'), map_location=device)
     model.load_state_dict(checkpoint['model'])
     model = model.eval()
     model = model.to(device)
@@ -90,6 +93,25 @@ def captioning_testing(args):
     tgt_masks = {l: model.generate_square_subsequent_mask(l, device) for l in range(1, args.max_len + 1)}
     start_time = time.time()
 
+    ################################################################################
+    from model.detection.models.backbone import Backbone, Joiner
+    from model.detection.models.position_encoding import PositionEmbeddingSine
+    import torch.nn as nn
+
+    d_model = 1024
+
+    position_embedding = PositionEmbeddingSine(d_model//2, normalize=True)
+    train_backbone = True
+    return_interm_layers = False
+    backbone = Backbone('resnet50', train_backbone, return_interm_layers, False)
+    model2 = Joiner(backbone, position_embedding)
+    model2.num_channels = backbone.num_channels
+    
+    backbone = model2.to(device)
+    input_proj = nn.Conv2d(backbone.num_channels, d_model, kernel_size=1)
+    input_proj = input_proj.to(device)
+    ################################################################################
+
     write_log(logger, "Test start!")
     with torch.no_grad():
         for print_step, (img, caption) in enumerate(dataloader_test):
@@ -102,7 +124,32 @@ def captioning_testing(args):
             # Encoding
             # encoder_out: (patch_seq, batch_size, d_model)
             # encoder_out_dict: [layer] = (patch_seq, batch_size, d_model)
-            encoder_out = model.patch_embedding(img).transpose(0, 1) 
+            # encoder_out = model.patch_embedding(img).transpose(0, 1) 
+
+            ################################################################################
+
+            from model.detection.util.misc import nested_tensor_from_tensor_list
+
+            if isinstance(img, (list, torch.Tensor)):
+                samples = nested_tensor_from_tensor_list(img)
+
+            features, pos = backbone(samples)
+            src, mask = features[-1].decompose()       
+            src = input_proj(src)
+            pos = pos[-1]
+
+            # print(src.shape, pos.shape)
+
+            src = src.flatten(2).permute(2, 0, 1)
+            pos = pos.flatten(2).permute(2, 0, 1)
+
+            # print(src.shape, pos.shape)
+
+            encoder_out = src + pos
+            encoder_out
+
+            ################################################################################
+            ################################################################################
             if model.parallel:
                 for i in range(len(model.encoders)):
                     encoder_out_dict[i] = model.encoders[i](encoder_out)
@@ -123,6 +170,7 @@ def captioning_testing(args):
                 encoder_out = encoder_out.view(
                     -1, args.test_batch_size, 1, args.d_model).repeat(1, 1, args.beam_size, 1)
                 encoder_out = encoder_out.view(patch_seq_size, -1, args.d_model)
+            ###################################################################################
 
             # Scores save vector & decoding list setting
             scores_save = torch.zeros(args.beam_size * args.test_batch_size, 1, device=device)
@@ -150,6 +198,7 @@ def captioning_testing(args):
                         decoder_out = model.decoders[i](decoder_out, encoder_out_dict[i], tgt_mask=tgt_mask, 
                                         tgt_key_padding_mask=tgt_key_padding_mask)
                 else:
+                ##############################################################################
                     for i in range(len(model.decoders)):
                         decoder_out = model.decoders[i](decoder_out, encoder_out, tgt_mask=tgt_mask, 
                                         tgt_key_padding_mask=tgt_key_padding_mask)
@@ -249,7 +298,7 @@ def captioning_testing(args):
                     figure_dict[f'ax{count}'].set_xlabel(xlabel_text, fontsize = 30)
                 fig.savefig('./full_figure.jpg')
 
-    with open(f'./results_beam_{args.beam_size}_{args.beam_alpha}_{args.repetition_penalty}.pkl', 'wb') as f:
+    with open(f'./results_beam_{args.beam_size}_{args.beam_alpha}_{args.repetition_penalty}.pkl', 'wb', -1, 'utf-8') as f:
         pickle.dump({
             'prediction': predicted_list, 
             'label': label_list,

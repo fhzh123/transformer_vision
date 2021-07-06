@@ -10,6 +10,8 @@ from tqdm import tqdm
 from ..transformer.embedding import PatchEmbedding, TransformerEmbedding
 from ..transformer.layer import TransformerEncoderLayer, TransformerDecoderLayer
 
+from einops import repeat
+
 class Vision_Transformer(nn.Module):
     def __init__(self, trg_vocab_num: int, d_model: int = 512, d_embedding: int = 256, 
                  n_head: int = 8, dim_feedforward: int = 2048,
@@ -21,6 +23,7 @@ class Vision_Transformer(nn.Module):
         super(Vision_Transformer, self).__init__()
 
         # Hyper-parameter setting
+        # padding 
         self.pad_id = pad_id
 
         # Initialization
@@ -63,7 +66,7 @@ class Vision_Transformer(nn.Module):
         self.trg_output_norm = nn.LayerNorm(d_embedding, eps=1e-12)
         self.trg_output_linear2 = nn.Linear(d_embedding, trg_vocab_num)
 
-        ################################################################################
+        ###############################################################################
         from ..detection.models.backbone import Backbone, Joiner
         from ..detection.models.position_encoding import PositionEmbeddingSine
 
@@ -76,15 +79,19 @@ class Vision_Transformer(nn.Module):
         
         self.backbone = model
         self.input_proj = nn.Conv2d(backbone.num_channels, d_model, kernel_size=1)
-        ################################################################################
+
+        self.cls_token = nn.Parameter(torch.randn(1, 1, d_model))
+        self.pos_token = nn.Parameter(torch.randn(1, 1, d_model))
+        ###############################################################################
 
     @autocast()
     def forward(self, src_img: Tensor, trg_text: Tensor, tgt_mask: Tensor, 
                 non_pad_position: Tensor = None) -> Tensor:
         # Image embedding
+        # Source image default shape : (4, 3, 256, 256)
+        # patch embedding default shape : (65, 4, 1024)
         encoder_out = self.patch_embedding(src_img).transpose(0, 1)
-        # print(f"Source Image shape : {src_img.shape}")
-        # print(f"Patch shape : {encoder_out.shape}")
+
 
         ################################################################################
 
@@ -94,25 +101,40 @@ class Vision_Transformer(nn.Module):
             samples = nested_tensor_from_tensor_list(src_img)
 
         features, pos = self.backbone(samples)
-        src, mask = features[-1].decompose()
+        src, _ = features[-1].decompose()
+
+        # Src default shape : (4, 1024, 8, 8)
+        # Pos default shape : (4, 1024, 8, 8)
         src = self.input_proj(src)
         pos = pos[-1]
 
-        # print(src.shape, pos.shape)
+        # Cls, Pos Token default shape : (4, 1, 1024)
+        batch_size = src.shape[0]
+        cls_tokens = repeat(self.cls_token, '() n e -> b n e', b=batch_size)
+        pos_tokens = repeat(self.pos_token, '() n e -> b n e', b=batch_size)
 
-        src = src.flatten(2).permute(2, 0, 1)
-        pos = pos.flatten(2).permute(2, 0, 1)
+        # Src, Pos Default shape : (4, 64, 1024)
+        src = src.flatten(2).transpose(1, 2)
+        pos = pos.flatten(2).transpose(1, 2)
 
-        # print(src.shape, pos.shape)
+        # Src, Pos default shape : (4, 65, 1024)
+        src = torch.cat([cls_tokens, src], dim=1)
+        pos = torch.cat([pos_tokens, pos], dim=1)
+
+        # Src default shape : (65, 4, 1024)
+        # Pos default shape : (65, 4, 1024)
+        src = src.transpose(0, 1)
+        pos = pos.transpose(0, 1)
 
         encoder_out = src + pos
 
-        ################################################################################
+        ###############################################################################
 
         # Text embedding
+        # Text default shape : (4, 299) 
+        # Decoder output default shape : (299, 4, 1024)
         tgt_key_padding_mask = (trg_text == self.pad_id)
         decoder_out = self.text_embedding(trg_text).transpose(0, 1)
-        # print(f"Decoder output shape : {decoder_out.shape}")
 
         # Parallel mode
         if self.parallel:
@@ -142,7 +164,7 @@ class Vision_Transformer(nn.Module):
             # Transformer Decoder
             for decoder in self.decoders:
                 decoder_out = decoder(decoder_out, encoder_out, tgt_mask=tgt_mask,
-                    tgt_key_padding_mask=tgt_key_padding_mask)
+                                      tgt_key_padding_mask=tgt_key_padding_mask)
 
         # Target linear
         decoder_out = decoder_out.transpose(0, 1).contiguous()
